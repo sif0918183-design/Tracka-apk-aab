@@ -26,12 +26,19 @@ jobs:
         run: flutter pub get
         working-directory: pwa_to_flutter_app
 
+      - name: Create google-services.json
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
+        working-directory: pwa_to_flutter_app
+
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
 
       - name: Build APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
       - name: Upload APK Artifact
