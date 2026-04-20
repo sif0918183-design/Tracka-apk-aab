@@ -30,6 +30,17 @@ jobs:
         run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
         working-directory: pwa_to_flutter_app
 
+      - name: Decode Keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+        working-directory: pwa_to_flutter_app
+
+      - name: Create key.properties
+        run: |
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+        working-directory: pwa_to_flutter_app
+
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
