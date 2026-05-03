@@ -27,7 +27,10 @@ jobs:
         working-directory: pwa_to_flutter_app
 
       - name: Clean project
-        run: flutter clean
+        run: |
+          flutter clean
+          rm -rf android/.gradle
+          rm -rf build
         working-directory: pwa_to_flutter_app
 
       - name: Get Dependencies
