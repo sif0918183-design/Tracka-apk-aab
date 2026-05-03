@@ -19,8 +19,12 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.0'
+          flutter-version: '3.27.0'
           channel: 'stable'
+
+      - name: Fix Flutter SDK path
+        run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+        working-directory: pwa_to_flutter_app
 
       - name: Clean project
         run: flutter clean
@@ -28,10 +32,6 @@ jobs:
 
       - name: Get Dependencies
         run: flutter pub get
-        working-directory: pwa_to_flutter_app
-
-      - name: Fix Flutter SDK path
-        run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
         working-directory: pwa_to_flutter_app
 
       - name: Create google-services.json
