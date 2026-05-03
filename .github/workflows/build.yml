@@ -22,8 +22,16 @@ jobs:
           flutter-version: '3.29.0'
           channel: 'stable'
 
+      - name: Clean project
+        run: flutter clean
+        working-directory: pwa_to_flutter_app
+
       - name: Get Dependencies
         run: flutter pub get
+        working-directory: pwa_to_flutter_app
+
+      - name: Fix Flutter SDK path
+        run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
         working-directory: pwa_to_flutter_app
 
       - name: Create google-services.json
