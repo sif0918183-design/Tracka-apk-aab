@@ -22,7 +22,6 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.pichillilorenzo.pwa_to_flutter_app"
     compileSdkVersion 35
-    ndkVersion flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
