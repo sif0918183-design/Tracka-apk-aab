@@ -19,30 +19,43 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: '3.27.0'
           channel: 'stable'
+
+      - name: Force remove legacy files
+        run: rm -rf android/app/src/main/java/io/flutter/plugins
+        working-directory: pwa_to_flutter_app
+
+      - name: Create local.properties
+        run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+        working-directory: pwa_to_flutter_app
 
       - name: Get Dependencies
         run: flutter pub get
         working-directory: pwa_to_flutter_app
 
       - name: Create google-services.json
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
+        run: printf "%s" "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
         working-directory: pwa_to_flutter_app
 
       - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+        run: printf "%s" "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
         working-directory: pwa_to_flutter_app
 
       - name: Create key.properties
         run: |
-          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
-          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
-          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=../upload-keystore.jks" > android/key.properties
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD || secrets.KEY_PASSWOR }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
         working-directory: pwa_to_flutter_app
 
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
+        working-directory: pwa_to_flutter_app
+
+      - name: Flutter Clean
+        run: flutter clean
         working-directory: pwa_to_flutter_app
 
       # 🔴 Build APK
@@ -53,7 +66,7 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
-      # 🟢 Build AAB (جديد)
+      # 🟢 Build AAB
       - name: Build AAB
         run: |
           flutter build appbundle --release \
@@ -69,7 +82,7 @@ jobs:
           path: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 7
 
-      # 🟢 Upload AAB (جديد)
+      # 🟢 Upload AAB
       - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
         with:
