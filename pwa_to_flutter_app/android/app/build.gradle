@@ -23,16 +23,15 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 apply plugin: 'com.google.gms.google-services'
 
 android {
-    namespace "com.pichillilorenzo.pwa_to_flutter_app"
-    compileSdkVersion 35
+    compileSdkVersion 34
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '1.8'
     }
 
     signingConfigs {
@@ -47,7 +46,7 @@ android {
     defaultConfig {
         applicationId "com.pichillilorenzo.pwa_to_flutter_app"
         minSdkVersion 21
-        targetSdkVersion 35
+        targetSdkVersion 34
         
         // Versioning hardcoded to ensure consistency with Google Play requirements
         versionCode 3
@@ -69,7 +68,7 @@ android {
 }
 
 dependencies {
-    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'com.google.android.material:material:1.6.0'
     implementation 'androidx.multidex:multidex:2.0.1'
 }
 
