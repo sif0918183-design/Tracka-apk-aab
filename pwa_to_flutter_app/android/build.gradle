@@ -1,5 +1,4 @@
 buildscript {
-    // تحديث نسخة كوتلن لدعم المكتبات الحديثة
     ext.kotlin_version = '1.9.20'
     repositories {
         google()
@@ -7,7 +6,6 @@ buildscript {
     }
 
     dependencies {
-        // تحديث الجريدل ليتوافق مع Flutter 3.16 و Java 17 المستخدم في GitHub
         classpath 'com.android.tools.build:gradle:7.4.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath 'com.google.gms:google-services:4.3.15'
