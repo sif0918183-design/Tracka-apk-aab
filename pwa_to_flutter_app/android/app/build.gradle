@@ -33,16 +33,16 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 apply plugin: 'com.google.gms.google-services'
 
 android {
-    compileSdkVersion 34
+    compileSdkVersion 35
     ndkVersion flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '1.8'
     }
 
     signingConfigs {
@@ -59,7 +59,7 @@ android {
         applicationId "com.pichillilorenzo.pwa_to_flutter_app"
         
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 35
         
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
