@@ -19,8 +19,23 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: '3.27.0'
           channel: 'stable'
+
+      - name: Fix Flutter SDK path
+        run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+        working-directory: pwa_to_flutter_app
+
+      - name: Force remove legacy files
+        run: rm -rf android/app/src/main/java/io/flutter/plugins
+        working-directory: pwa_to_flutter_app
+
+      - name: Clean project
+        run: |
+          flutter clean
+          rm -rf android/.gradle
+          rm -rf build
+        working-directory: pwa_to_flutter_app
 
       - name: Get Dependencies
         run: flutter pub get
