@@ -22,10 +22,6 @@ jobs:
           flutter-version: '3.27.0'
           channel: 'stable'
 
-      - name: Force remove legacy files
-        run: rm -rf android/app/src/main/java/io/flutter/plugins
-        working-directory: pwa_to_flutter_app
-
       - name: Create local.properties
         run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
         working-directory: pwa_to_flutter_app

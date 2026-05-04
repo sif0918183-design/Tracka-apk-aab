@@ -1,10 +1,3 @@
-plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
-    id "com.google.gms.google-services"
-}
-
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -19,17 +12,27 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def flutterRoot = localProperties.getProperty('flutter.sdk')
+if (flutterRoot == null) {
+    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
+}
+
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+apply plugin: 'com.google.gms.google-services'
+
 android {
     namespace "com.pichillilorenzo.pwa_to_flutter_app"
-    compileSdk 35
+    compileSdkVersion 35
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 
     signingConfigs {
@@ -43,9 +46,8 @@ android {
 
     defaultConfig {
         applicationId "com.pichillilorenzo.pwa_to_flutter_app"
-        
-        minSdk 21
-        targetSdk 35
+        minSdkVersion 21
+        targetSdkVersion 35
         
         // Versioning hardcoded to ensure consistency with Google Play requirements
         versionCode 3
@@ -67,7 +69,7 @@ android {
 }
 
 dependencies {
-    implementation 'com.google.android.material:material:1.6.0'
+    implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.multidex:multidex:2.0.1'
 }
 
