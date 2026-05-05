@@ -33,7 +33,7 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 apply plugin: 'com.google.gms.google-services'
 
 android {
-    namespace "com.pichillilorenzo.pwa_to_flutter_app"
+    namespace "com.tracka.app"
     compileSdkVersion 35
     ndkVersion flutter.ndkVersion
 
@@ -57,7 +57,7 @@ android {
 
     defaultConfig {
         // نصيحة: قم بتغيير الـ Application ID لاحقاً ليكون فريداً بك
-        applicationId "com.pichillilorenzo.pwa_to_flutter_app"
+        applicationId "com.tracka.app"
         
         minSdkVersion 21
         targetSdkVersion 35
