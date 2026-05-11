@@ -248,7 +248,7 @@ class _DriverHomeState extends State<DriverHome> {
     // إشعارات منصة السفر → فتح صفحة السفر مباشرة
     if (isTravelNotif) {
       _stopAlerts();
-      const String travelUrl = 'https://driver.zoonasd.com/driver_app/travel-platform.html';
+      const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
       } else {
@@ -269,7 +269,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     if (rideId != null) {
-      final url = "https://driver.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
       } else {
@@ -469,7 +469,7 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         child: SafeArea(
           child: InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://driver.zoonasd.com/')),
+            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://tracka.zoonasd.com/')),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
