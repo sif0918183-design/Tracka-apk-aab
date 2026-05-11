@@ -80,7 +80,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https"
-                      android:host="driver.zoonasd.com"
+                      android:host="tracka.zoonasd.com"
                       android:pathPrefix="/accept-ride.html" />
             </intent-filter>
 
