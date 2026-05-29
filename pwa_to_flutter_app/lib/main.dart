@@ -140,8 +140,8 @@ Future<void> main() async {
   }
 
   await Supabase.initialize(
-    url: const String.fromEnvironment('SUPABASE_URL'),
-    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+    url: 'https://zsmlyiygjagmhnglrhoa.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzbWx5aXlnamFnbWhuZ2xyaG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5NDc3NjMsImV4cCI6MjA4MTUyMzc2M30.QviVinAng-ILq0umvI5UZCFEvNpP3nI0kW_hSaXxNps',
   );
 
   await [Permission.notification, Permission.location, Permission.locationAlways, Permission.camera, Permission.ignoreBatteryOptimizations].request();
@@ -248,7 +248,7 @@ class _DriverHomeState extends State<DriverHome> {
     // إشعارات منصة السفر → فتح صفحة السفر مباشرة
     if (isTravelNotif) {
       _stopAlerts();
-      const String travelUrl = 'https://driver.zoonasd.com/driver_app/travel-platform.html';
+      const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
       } else {
@@ -269,7 +269,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     if (rideId != null) {
-      final url = "https://driver.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
       } else {
@@ -469,7 +469,7 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         child: SafeArea(
           child: InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://driver.zoonasd.com/')),
+            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://tracka.zoonasd.com/')),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
