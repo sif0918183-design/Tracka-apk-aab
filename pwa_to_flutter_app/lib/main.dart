@@ -94,7 +94,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       rideId?.hashCode ?? DateTime.now().millisecond, title, body,
       fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          'emergency_channel_v11',
+          'emergency_channel_v12',
           'تنبيهات الطوارئ - تراكا',
           importance: fln.Importance.max,
           priority: fln.Priority.high,
@@ -105,6 +105,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
         ),
@@ -206,15 +207,16 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     // قناة طلبات الرحلات العادية (صوت مزعج + FLAG_INSISTENT)
-    const urgentChan = fln.AndroidNotificationChannel(
-      'emergency_channel_v11',
+    final urgentChan = fln.AndroidNotificationChannel(
+      'emergency_channel_v12',
       'تنبيهات الطوارئ - تراكا',
       description: 'هذه القناة مخصصة لطلبات الرحلات الهامة جداً',
       importance: fln.Importance.max,
       playSound: true,
       enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
       audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-      sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+      sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
     );
     await androidImplementation?.createNotificationChannel(urgentChan);
 
@@ -373,7 +375,7 @@ class _DriverHomeState extends State<DriverHome> {
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
-            'emergency_channel_v11',
+            'emergency_channel_v12',
             'تنبيهات الطوارئ - Tracka',
             importance: fln.Importance.max,
             priority: fln.Priority.high,
@@ -383,6 +385,7 @@ class _DriverHomeState extends State<DriverHome> {
             playSound: true,
             additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+            vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
           ),
         ),
         payload: jsonEncode(data),
