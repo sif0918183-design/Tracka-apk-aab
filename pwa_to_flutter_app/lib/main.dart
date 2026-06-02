@@ -144,7 +144,19 @@ Future<void> main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzbWx5aXlnamFnbWhuZ2xyaG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5NDc3NjMsImV4cCI6MjA4MTUyMzc2M30.QviVinAng-ILq0umvI5UZCFEvNpP3nI0kW_hSaXxNps',
   );
 
-  await [Permission.notification, Permission.location, Permission.locationAlways, Permission.camera, Permission.ignoreBatteryOptimizations].request();
+  // طلب أذونات المقدمة أولاً (أمر ضروري لنظام أندرويد 11+)
+  await [
+    Permission.location,
+    Permission.notification,
+    Permission.camera,
+    Permission.ignoreBatteryOptimizations,
+  ].request();
+
+  // طلب إذن الموقع في الخلفية بشكل منفصل بعد الحصول على إذن المقدمة
+  if (await Permission.location.isGranted) {
+    await Permission.locationAlways.request();
+  }
+
   _initForegroundTask();
   runApp(const DriverApp());
 }
