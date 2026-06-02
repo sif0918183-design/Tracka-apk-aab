@@ -131,7 +131,7 @@ class MyTaskHandler extends TaskHandler {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  
+
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -152,13 +152,19 @@ Future<void> main() async {
 void _initForegroundTask() {
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
-      channelId: 'foreground_service',
-      channelName: 'خدمة تراكا تعمل حالياً',
-      channelImportance: NotificationChannelImportance.MAX,
-      priority: NotificationPriority.HIGH,
+      channelId: 'foreground_service_location',
+      channelName: 'تراكا - مشاركة الموقع نشطة',
+      channelDescription: 'التطبيق يعمل في الخلفية لاستقبال طلبات الرحلات',
+      channelImportance: NotificationChannelImportance.LOW,
+      priority: NotificationPriority.LOW,
     ),
     iosNotificationOptions: const IOSNotificationOptions(showNotification: true, playSound: false),
-    foregroundTaskOptions: ForegroundTaskOptions(eventAction: ForegroundTaskEventAction.repeat(5000), autoRunOnBoot: true, allowWakeLock: true, allowWifiLock: true),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(5000), 
+      autoRunOnBoot: true, 
+      allowWakeLock: true, 
+      allowWifiLock: true
+    ),
   );
 }
 
@@ -327,7 +333,7 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _startForegroundService() async {
     if (await FlutterForegroundTask.isRunningService) return;
     await FlutterForegroundTask.startService(
-      notificationTitle: 'Tracka يعمل في الخلفية',
+      notificationTitle: 'تراكا يعمل في الخلفية',
       notificationText: 'جاهز لاستقبال طلبات الرحلات',
       callback: startCallback,
     );
