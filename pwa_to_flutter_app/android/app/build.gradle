@@ -59,7 +59,7 @@ android {
         // نصيحة: قم بتغيير الـ Application ID لاحقاً ليكون فريداً بك
         applicationId "com.tracka.app"
         
-        minSdkVersion 21
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 35
         
         versionCode flutterVersionCode.toInteger()
