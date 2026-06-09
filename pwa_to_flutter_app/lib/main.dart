@@ -152,19 +152,13 @@ Future<void> main() async {
 void _initForegroundTask() {
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
-      channelId: 'foreground_service_location',
-      channelName: 'تراكا - مشاركة الموقع نشطة',
-      channelDescription: 'التطبيق يعمل في الخلفية لاستقبال طلبات الرحلات',
-      channelImportance: NotificationChannelImportance.LOW,
-      priority: NotificationPriority.LOW,
+      channelId: 'foreground_service',
+      channelName: 'خدمة تراكا تعمل حالياً',
+      channelImportance: NotificationChannelImportance.MAX,
+      priority: NotificationPriority.HIGH,
     ),
     iosNotificationOptions: const IOSNotificationOptions(showNotification: true, playSound: false),
-    foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.repeat(5000), 
-      autoRunOnBoot: true, 
-      allowWakeLock: true, 
-      allowWifiLock: true
-    ),
+    foregroundTaskOptions: ForegroundTaskOptions(eventAction: ForegroundTaskEventAction.repeat(5000), autoRunOnBoot: true, allowWakeLock: true, allowWifiLock: true),
   );
 }
 
@@ -333,7 +327,7 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _startForegroundService() async {
     if (await FlutterForegroundTask.isRunningService) return;
     await FlutterForegroundTask.startService(
-      notificationTitle: 'تراكا يعمل في الخلفية',
+      notificationTitle: 'Tracka يعمل في الخلفية',
       notificationText: 'جاهز لاستقبال طلبات الرحلات',
       callback: startCallback,
     );
