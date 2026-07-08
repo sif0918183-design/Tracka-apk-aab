@@ -32,6 +32,10 @@ bool _isAlertPlaying = false;
 String? _dynamicChannelId;
 String? _dynamicChannelName;
 
+// ✅ معرف القناة الثابت للرحلات الجديدة (يجب أن يتطابق مع API)
+const String _emergencyChannelId = 'emergency_channel_default';
+const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
+
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
   if (rideId == null && data['payload'] != null) {
@@ -58,47 +62,9 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ دالة للحصول على معرف القناة الفريد
-Future<String> _getChannelId() async {
-  if (_dynamicChannelId != null) return _dynamicChannelId!;
-  
-  final prefs = await SharedPreferences.getInstance();
-  String? channelId = prefs.getString('notification_channel_id');
-  
-  if (channelId == null || channelId.isEmpty) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final packageInfo = await PackageInfo.fromPlatform();
-    final version = packageInfo.buildNumber;
-    channelId = 'emergency_channel_${version}_$timestamp';
-    await prefs.setString('notification_channel_id', channelId);
-    await prefs.setString('notification_channel_name', 'تنبيهات الطوارئ - تراكا');
-  }
-  
-  _dynamicChannelId = channelId;
-  _dynamicChannelName = prefs.getString('notification_channel_name') ?? 'تنبيهات الطوارئ - تراكا';
-  
-  return _dynamicChannelId!;
-}
-
-// ✅ معالجة الإشعارات في الخلفية
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  
-  // ✅ منع Firebase من عرض الإشعار الافتراضي
-  final prefs = await SharedPreferences.getInstance();
-  String? channelId = prefs.getString('notification_channel_id');
-  String? channelName = prefs.getString('notification_channel_name');
-  
-  if (channelId == null || channelId.isEmpty) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final packageInfo = await PackageInfo.fromPlatform();
-    final version = packageInfo.buildNumber;
-    channelId = 'emergency_channel_${version}_$timestamp';
-    await prefs.setString('notification_channel_id', channelId);
-    channelName = 'تنبيهات الطوارئ - تراكا';
-    await prefs.setString('notification_channel_name', channelName!);
-  }
 
   Map<String, dynamic> data = message.data;
   final String notifType = data['type']?.toString() ?? '';
@@ -134,7 +100,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else {
-    // ✅ إشعار مخصص مع صوت واهتزاز عالي
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
@@ -142,8 +107,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       body,
       fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          channelId,
-          channelName!,
+          _emergencyChannelId,
+          _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
@@ -151,7 +116,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           playSound: true,
           enableVibration: true,
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-          sound: null, // ✅ صوت النظام الافتراضي (المرتفع)
+          sound: null,
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
           timeoutAfter: null,
@@ -281,10 +246,7 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      final channelId = await _getChannelId();
-      final channelName = _dynamicChannelName ?? 'تنبيهات الطوارئ - تراكا';
-      
-      // ✅ حذف جميع القنوات القديمة
+      // ✅ حذف القنوات القديمة
       for (int i = 10; i <= 20; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
@@ -300,32 +262,19 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء القناة الرئيسية
-      final urgentChan = fln.AndroidNotificationChannel(
-        channelId,
-        channelName,
-        description: 'قناة مخصصة لطلبات الرحلات - تنبيه صوتي واهتزاز عالي',
+      // ✅ إنشاء قناة الطوارئ الرئيسية (يجب أن تتطابق مع API)
+      final emergencyChan = fln.AndroidNotificationChannel(
+        _emergencyChannelId,
+        _emergencyChannelName,
+        description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
         importance: fln.Importance.max,
         playSound: true,
         enableVibration: true,
         audioAttributesUsage: fln.AudioAttributesUsage.alarm,
       );
-      await androidImplementation.createNotificationChannel(urgentChan);
+      await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إضافية للأصوات العالية
-      const alarmChan = fln.AndroidNotificationChannel(
-        'alarm_channel',
-        'تنبيهات عالية',
-        description: 'قناة للأصوات العالية والاهتزاز القوي',
-        importance: fln.Importance.max,
-        playSound: true,
-        enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.alarm,
-      );
-      await androidImplementation.createNotificationChannel(alarmChan);
-      
-      print('✅ تم إنشاء قناة الإشعارات: $channelId');
-      
+      // ✅ قناة إشعارات السفر (هادئة)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -335,6 +284,20 @@ class _DriverHomeState extends State<DriverHome> {
         enableVibration: true,
       );
       await androidImplementation.createNotificationChannel(travelChan);
+      
+      // ✅ قناة احتياطية
+      const backupChan = fln.AndroidNotificationChannel(
+        'emergency_channel_backup',
+        'تنبيهات الطوارئ - احتياطي',
+        description: 'قناة احتياطية للإشعارات الطارئة',
+        importance: fln.Importance.max,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: fln.AudioAttributesUsage.alarm,
+      );
+      await androidImplementation.createNotificationChannel(backupChan);
+      
+      print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
     }
   }
 
@@ -480,18 +443,18 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
+  // ✅ تشغيل الصوت المتكرر
   void _playAlertSound() {
     _stopAlertSound();
     _isAlertPlaying = true;
 
+    // ✅ اهتزاز قوي ومتكرر
     _vibratePhone();
 
-    // ✅ تشغيل صوت عالٍ عبر AudioPlayer
+    // ✅ تشغيل الصوت من assets مع تكرار
     _playSoundFromAssets();
 
-    // ✅ إشعار احتياطي
-    _playFallbackSound();
-
+    // ✅ إيقاف الصوت تلقائياً بعد 35 ثانية
     Future.delayed(const Duration(seconds: 35), () {
       _stopAlertSound();
     });
@@ -500,7 +463,6 @@ class _DriverHomeState extends State<DriverHome> {
   void _playSoundFromAssets() async {
     try {
       _audioPlayer = AudioPlayer();
-      // ✅ تشغيل بصوت عالٍ
       await _audioPlayer!.setVolume(1.0);
       await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
       await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
@@ -549,43 +511,6 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  void _playFallbackSound() async {
-    try {
-      final channelId = await _getChannelId();
-      final channelName = _dynamicChannelName ?? 'تنبيهات الطوارئ - تراكا';
-      
-      final backupNotif = fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          channelId,
-          channelName,
-          importance: fln.Importance.max,
-          priority: fln.Priority.max,
-          playSound: true,
-          enableVibration: true,
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500]),
-          category: fln.AndroidNotificationCategory.alarm,
-          sound: null,
-          visibility: fln.NotificationVisibility.public,
-        ),
-      );
-      
-      int counter = 0;
-      Timer.periodic(const Duration(seconds: 3), (timer) async {
-        if (_isAlertPlaying && counter < 10) {
-          counter++;
-          await notifications.show(
-            999 + counter,
-            '🔔 تنبيه! طلب رحلة',
-            'يوجد طلب رحلة جديد - انتبه!',
-            backupNotif,
-          );
-        } else {
-          timer.cancel();
-        }
-      });
-    } catch (_) {}
-  }
-
   void _stopAlertSound() {
     _isAlertPlaying = false;
     _alertTimer?.cancel();
@@ -604,17 +529,14 @@ class _DriverHomeState extends State<DriverHome> {
       String amount = data['amount']?.toString() ?? '0';
       String? rideId = _extractRideId(data);
 
-      final channelId = await _getChannelId();
-      final channelName = _dynamicChannelName ?? 'تنبيهات الطوارئ - تراكا';
-
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
         '🚨 طلب رحلة جديد',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
-            channelId,
-            channelName,
+            _emergencyChannelId,
+            _emergencyChannelName,
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
