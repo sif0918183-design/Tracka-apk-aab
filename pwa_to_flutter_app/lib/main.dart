@@ -27,6 +27,10 @@ AudioPlayer? _audioPlayer;
 Timer? _alertTimer;
 bool _isAlertPlaying = false;
 
+// ✅ اسم القناة الجديد - تغيير الرقم لإنشاء قناة جديدة
+const String _emergencyChannelId = 'emergency_channel_v12';
+const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
+
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
   if (rideId == null && data['payload'] != null) {
@@ -45,7 +49,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   final lastHandled = prefs.getInt(key);
   final now = DateTime.now().millisecondsSinceEpoch;
 
-  if (lastHandled != null && (now - lastHandled) < 300000) { // 5 minutes
+  if (lastHandled != null && (now - lastHandled) < 300000) {
     return true;
   }
 
@@ -61,7 +65,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
 
-  // فحص التكرار فقط لطلبات الرحلات العادية
   if (!isTravelNotif) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
@@ -75,7 +78,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'لديك طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    // إشعار هادئ لمنصة السفر
     await notifications.show(
       DateTime.now().millisecond, title, body,
       const fln.NotificationDetails(
@@ -93,14 +95,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else {
-    // ✅ إشعار طارئ محسّن لطلبات الرحلات العادية
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond, title, body,
       fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          'emergency_channel_v11',
-          'تنبيهات الطوارئ - تراكا',
+          _emergencyChannelId, // ✅ استخدام القناة الجديدة
+          _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           fullScreenIntent: true,
@@ -238,42 +239,51 @@ class _DriverHomeState extends State<DriverHome> {
 
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
-    // ✅ قناة طلبات الرحلات العادية (محسّنة مع صوت واهتزاز قوي)
-    const urgentChan = fln.AndroidNotificationChannel(
-      'emergency_channel_v11',
-      'تنبيهات الطوارئ - تراكا',
-      description: 'هذه القناة مخصصة لطلبات الرحلات الهامة جداً',
-      importance: fln.Importance.max,
-      playSound: true,
-      enableVibration: true,
-      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-      sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-    );
-    await androidImplementation?.createNotificationChannel(urgentChan);
+    if (androidImplementation != null) {
+      // ✅ حذف القنوات القديمة لضمان إنشاء جديدة
+      try {
+        await androidImplementation.deleteNotificationChannel('emergency_channel_v10');
+        await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
+        await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
+      } catch (_) {}
 
-    // ✅ قناة ثانية للنسخ الاحتياطي (بصوت مختلف)
-    const backupChan = fln.AndroidNotificationChannel(
-      'emergency_channel_backup',
-      'تنبيهات الطوارئ - تراكا (نسخة احتياطية)',
-      description: 'قناة احتياطية للإشعارات الطارئة',
-      importance: fln.Importance.max,
-      playSound: true,
-      enableVibration: true,
-      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-      sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-    );
-    await androidImplementation?.createNotificationChannel(backupChan);
+      // ✅ إنشاء القناة الجديدة
+      const urgentChan = fln.AndroidNotificationChannel(
+        _emergencyChannelId,
+        _emergencyChannelName,
+        description: 'قناة مخصصة لطلبات الرحلات الهامة جداً',
+        importance: fln.Importance.max,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+        sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+      );
+      await androidImplementation.createNotificationChannel(urgentChan);
 
-    // قناة منصة السفر (صوت عادي هادئ)
-    const travelChan = fln.AndroidNotificationChannel(
-      'travel_notifications',
-      'إشعارات السفر - تراكا',
-      description: 'إشعارات قبول الرحلات والمحادثات في منصة السفر',
-      importance: fln.Importance.high,
-      playSound: true,
-      enableVibration: true,
-    );
-    await androidImplementation?.createNotificationChannel(travelChan);
+      // ✅ قناة احتياطية
+      const backupChan = fln.AndroidNotificationChannel(
+        'emergency_channel_backup_v2',
+        'تنبيهات الطوارئ - تراكا (نسخة احتياطية)',
+        description: 'قناة احتياطية للإشعارات الطارئة',
+        importance: fln.Importance.max,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+        sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+      );
+      await androidImplementation.createNotificationChannel(backupChan);
+
+      // قناة منصة السفر
+      const travelChan = fln.AndroidNotificationChannel(
+        'travel_notifications',
+        'إشعارات السفر - تراكا',
+        description: 'إشعارات قبول الرحلات والمحادثات في منصة السفر',
+        importance: fln.Importance.high,
+        playSound: true,
+        enableVibration: true,
+      );
+      await androidImplementation.createNotificationChannel(travelChan);
+    }
   }
 
   Future<void> _initFirebaseMessaging() async {
@@ -296,10 +306,8 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
-    // ✅ إيقاف الصوت والاهتزاز عند النقر على الإشعار
     _stopAlertSound();
 
-    // إشعارات منصة السفر → فتح صفحة السفر مباشرة
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
@@ -310,7 +318,6 @@ class _DriverHomeState extends State<DriverHome> {
       return;
     }
 
-    // طلبات الرحلات العادية → accept-ride.html
     dynamic rideId = data['ride_id'] ?? data['rideId'];
 
     if (rideId == null && data['payload'] != null) {
@@ -336,18 +343,14 @@ class _DriverHomeState extends State<DriverHome> {
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
     if (isTravelNotif) {
-      // إشعار هادئ فقط — بدون صوت مزعج أو مودال
       await _showTravelNotification(data, message.notification);
       return;
     }
 
-    // طلب رحلة عادي — فحص التكرار + إشعار طارئ + مودال
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
 
-    // ✅ تشغيل الصوت والاهتزاز فوراً
     _playAlertSound();
-
     await _showLocalNotification(data);
     _showRideRequestModal(data);
     await _sendToPWA(data);
@@ -416,9 +419,7 @@ class _DriverHomeState extends State<DriverHome> {
           String? rideId = _extractRideId(rideData);
           if (await _isDuplicateRide(rideId)) return;
 
-          // ✅ تشغيل الصوت والاهتزاز للرحلات القادمة من Supabase
           _playAlertSound();
-
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
           await _sendToPWA(rideData);
@@ -426,20 +427,16 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ دالة محسّنة لتشغيل الصوت والاهتزاز المتكرر
   void _playAlertSound() {
     _stopAlertSound();
     _isAlertPlaying = true;
 
-    // ✅ اهتزاز متكرر (تم إصلاح الـ async)
     _vibratePhone();
 
-    // ✅ تشغيل الصوت عبر AudioPlayer
     try {
       _audioPlayer = AudioPlayer();
       _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
       
-      // ✅ تكرار الصوت كل 3 ثوانٍ
       _alertTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
         if (_isAlertPlaying) {
           try {
@@ -450,31 +447,27 @@ class _DriverHomeState extends State<DriverHome> {
         }
       });
     } catch (_) {
-      // ✅ في حال فشل تشغيل الصوت المخصص، استخدام الصوت الافتراضي عبر النوتيفيكيشن
       _playFallbackSound();
     }
 
-    // ✅ إيقاف الصوت تلقائياً بعد 30 ثانية
     Future.delayed(const Duration(seconds: 30), () {
       _stopAlertSound();
     });
   }
 
-  // ✅ دالة منفصلة للاهتزاز
   void _vibratePhone() async {
     try {
       if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
       }
     } catch (_) {}
   }
 
-  // ✅ تشغيل صوت احتياطي عبر الإشعارات
   void _playFallbackSound() async {
     try {
       final testNotif = fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          'emergency_channel_backup',
+          'emergency_channel_backup_v2',
           'تنبيهات الطوارئ - تراكا',
           importance: fln.Importance.max,
           priority: fln.Priority.max,
@@ -493,7 +486,6 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  // ✅ إيقاف الصوت والاهتزاز
   void _stopAlertSound() {
     _isAlertPlaying = false;
     _alertTimer?.cancel();
@@ -518,8 +510,8 @@ class _DriverHomeState extends State<DriverHome> {
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
-            'emergency_channel_v11',
-            'تنبيهات الطوارئ - Tracka',
+            _emergencyChannelId, // ✅ استخدام القناة الجديدة
+            _emergencyChannelName,
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             fullScreenIntent: true,
