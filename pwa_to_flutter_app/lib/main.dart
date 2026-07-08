@@ -156,7 +156,6 @@ Future<void> main() async {
     Permission.locationAlways,
     Permission.camera,
     Permission.ignoreBatteryOptimizations,
-    Permission.vibrate,
   ].request();
   
   _initForegroundTask();
@@ -432,10 +431,8 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlertSound();
     _isAlertPlaying = true;
 
-    // ✅ اهتزاز متكرر
-    if (await Vibration.hasVibrator() ?? false) {
-      Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
-    }
+    // ✅ اهتزاز متكرر (تم إصلاح الـ async)
+    _vibratePhone();
 
     // ✅ تشغيل الصوت عبر AudioPlayer
     try {
@@ -463,10 +460,18 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
+  // ✅ دالة منفصلة للاهتزاز
+  void _vibratePhone() async {
+    try {
+      if (await Vibration.hasVibrator() ?? false) {
+        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+      }
+    } catch (_) {}
+  }
+
   // ✅ تشغيل صوت احتياطي عبر الإشعارات
   void _playFallbackSound() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final testNotif = fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
           'emergency_channel_backup',
