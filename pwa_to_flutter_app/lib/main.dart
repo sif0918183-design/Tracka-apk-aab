@@ -27,8 +27,8 @@ AudioPlayer? _audioPlayer;
 Timer? _alertTimer;
 bool _isAlertPlaying = false;
 
-// ✅ اسم القناة الجديد - تغيير الرقم لإنشاء قناة جديدة
-const String _emergencyChannelId = 'emergency_channel_v12';
+// ✅ اسم القناة الجديد
+const String _emergencyChannelId = 'emergency_channel_v14';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 String? _extractRideId(Map<String, dynamic> data) {
@@ -106,13 +106,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
-          // ✅ تم إزالة fullScreenIntent: true
           ongoing: true,
           category: fln.AndroidNotificationCategory.call,
           playSound: true,
           enableVibration: true,
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500]),
-          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+          sound: null, // ✅ استخدام صوت النظام الافتراضي
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
           timeoutAfter: null,
@@ -242,38 +241,26 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة لضمان إنشاء جديدة
+      // ✅ حذف القنوات القديمة
       try {
         await androidImplementation.deleteNotificationChannel('emergency_channel_v10');
         await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
+        await androidImplementation.deleteNotificationChannel('emergency_channel_v12');
+        await androidImplementation.deleteNotificationChannel('emergency_channel_v13');
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء القناة الجديدة مع أعلى إعدادات الصوت والاهتزاز
+      // ✅ إنشاء القناة الجديدة
       const urgentChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
-        description: 'قناة مخصصة لطلبات الرحلات الهامة جداً - صوت واهتزاز عالي',
+        description: 'قناة مخصصة لطلبات الرحلات الهامة جداً - تنبيه صوتي واهتزاز عالي',
         importance: fln.Importance.max,
         playSound: true,
         enableVibration: true,
         audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-        sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
       );
       await androidImplementation.createNotificationChannel(urgentChan);
-
-      // ✅ قناة احتياطية
-      const backupChan = fln.AndroidNotificationChannel(
-        'emergency_channel_backup_v2',
-        'تنبيهات الطوارئ - تراكا (نسخة احتياطية)',
-        description: 'قناة احتياطية للإشعارات الطارئة',
-        importance: fln.Importance.max,
-        playSound: true,
-        enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-        sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-      );
-      await androidImplementation.createNotificationChannel(backupChan);
 
       // قناة منصة السفر
       const travelChan = fln.AndroidNotificationChannel(
@@ -352,7 +339,7 @@ class _DriverHomeState extends State<DriverHome> {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
 
-    // ✅ تشغيل الصوت والاهتزاز المتكرر فوراً
+    // ✅ تشغيل الصوت والاهتزاز المتكرر
     _playAlertSound();
     await _showLocalNotification(data);
     _showRideRequestModal(data);
@@ -422,7 +409,6 @@ class _DriverHomeState extends State<DriverHome> {
           String? rideId = _extractRideId(rideData);
           if (await _isDuplicateRide(rideId)) return;
 
-          // ✅ تشغيل الصوت والاهتزاز للرحلات القادمة من Supabase
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
@@ -431,7 +417,7 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت المتكرر والاهتزاز القوي
+  // ✅ تشغيل الصوت المتكرر باستخدام AudioPlayer مع ملف من assets
   void _playAlertSound() {
     _stopAlertSound();
     _isAlertPlaying = true;
@@ -439,25 +425,11 @@ class _DriverHomeState extends State<DriverHome> {
     // ✅ اهتزاز قوي ومتكرر
     _vibratePhone();
 
-    // ✅ تشغيل الصوت عبر AudioPlayer مع تكرار
-    try {
-      _audioPlayer = AudioPlayer();
-      _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-      
-      // ✅ تكرار الصوت كل 2 ثانية (أسرع من السابق)
-      _alertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-        if (_isAlertPlaying) {
-          try {
-            await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-          } catch (_) {}
-        } else {
-          timer.cancel();
-        }
-      });
-    } catch (_) {
-      // ✅ في حال فشل تشغيل الصوت المخصص، استخدام الصوت الافتراضي عبر الإشعار
-      _playFallbackSound();
-    }
+    // ✅ تشغيل الصوت من assets مع تكرار
+    _playSoundFromAssets();
+
+    // ✅ تشغيل صوت احتياطي عبر الإشعارات (يضمن وصول الصوت)
+    _playFallbackSound();
 
     // ✅ إيقاف الصوت تلقائياً بعد 30 ثانية
     Future.delayed(const Duration(seconds: 30), () {
@@ -465,48 +437,111 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
+  // ✅ تشغيل الصوت من مجلد assets مع تكرار
+  void _playSoundFromAssets() async {
+    try {
+      _audioPlayer = AudioPlayer();
+      
+      // ✅ محاولة تحميل الصوت من assets
+      await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
+      await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+      
+      // ✅ تكرار الصوت كل 2 ثانية
+      _alertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+        if (_isAlertPlaying) {
+          try {
+            // ✅ إعادة تشغيل الصوت إذا توقف
+            if (_audioPlayer?.state == PlayerState.stopped || 
+                _audioPlayer?.state == PlayerState.completed) {
+              await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+            }
+          } catch (_) {}
+        } else {
+          timer.cancel();
+        }
+      });
+    } catch (e) {
+      // ✅ إذا فشل تشغيل الصوت من assets، نحاول استخدام الملف الآخر
+      try {
+        _audioPlayer = AudioPlayer();
+        await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
+        await _audioPlayer!.play(AssetSource('ride_request_sound.mp3'));
+      } catch (_) {
+        // ✅ في حال فشل كل المحاولات، نعتمد على الإشعار الاحتياطي
+      }
+    }
+  }
+
   // ✅ اهتزاز قوي ومتكرر
   void _vibratePhone() async {
     try {
       if (await Vibration.hasVibrator() ?? false) {
-        // ✅ نمط اهتزاز طويل ومتكرر
-        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+        // ✅ اهتزاز طويل ومتكرر جداً
+        Vibration.vibrate(pattern: [
+          0, 500, 200, 500, 200, 500, 200, 500, 
+          200, 500, 200, 500, 200, 500, 200, 500
+        ], repeat: 0);
         
-        // ✅ اهتزاز إضافي بعد 3 ثوانٍ للتأكيد
+        // ✅ اهتزاز إضافي بعد 3 ثوانٍ
         Future.delayed(const Duration(seconds: 3), () {
           if (_isAlertPlaying) {
-            Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400], repeat: 0);
+            Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400, 200, 400, 200, 400], repeat: 0);
+          }
+        });
+
+        // ✅ اهتزاز إضافي بعد 6 ثوانٍ
+        Future.delayed(const Duration(seconds: 6), () {
+          if (_isAlertPlaying) {
+            Vibration.vibrate(pattern: [0, 600, 200, 600, 200, 600, 200, 600], repeat: 0);
+          }
+        });
+
+        // ✅ اهتزاز إضافي بعد 10 ثوانٍ
+        Future.delayed(const Duration(seconds: 10), () {
+          if (_isAlertPlaying) {
+            Vibration.vibrate(pattern: [0, 300, 100, 300, 100, 300, 100, 300], repeat: 0);
           }
         });
       }
     } catch (_) {}
   }
 
-  // ✅ تشغيل صوت احتياطي عبر الإشعارات
+  // ✅ تشغيل صوت احتياطي عبر الإشعارات (يضمن الصوت حتى لو فشل AudioPlayer)
   void _playFallbackSound() async {
     try {
-      final testNotif = fln.NotificationDetails(
+      // ✅ إرسال إشعار احتياطي بصوت عالٍ
+      final backupNotif = fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          'emergency_channel_backup_v2',
-          'تنبيهات الطوارئ - تراكا',
+          _emergencyChannelId,
+          _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           playSound: true,
           enableVibration: true,
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500]),
           category: fln.AndroidNotificationCategory.call,
+          sound: null, // استخدام صوت النظام
         ),
       );
-      await notifications.show(
-        999,
-        '🔔 تنبيه',
-        'طلب رحلة جديد',
-        testNotif,
-      );
+      
+      // ✅ إرسال إشعار احتياطي كل 3 ثوانٍ (أسرع)
+      int counter = 0;
+      Timer.periodic(const Duration(seconds: 3), (timer) async {
+        if (_isAlertPlaying && counter < 8) {
+          counter++;
+          await notifications.show(
+            999 + counter,
+            '🔔 تنبيه! طلب رحلة',
+            'يوجد طلب رحلة جديد في انتظارك - انتبه!',
+            backupNotif,
+          );
+        } else {
+          timer.cancel();
+        }
+      });
     } catch (_) {}
   }
 
-  // ✅ إيقاف الصوت والاهتزاز
   void _stopAlertSound() {
     _isAlertPlaying = false;
     _alertTimer?.cancel();
@@ -535,13 +570,12 @@ class _DriverHomeState extends State<DriverHome> {
             _emergencyChannelName,
             importance: fln.Importance.max,
             priority: fln.Priority.max,
-            // ✅ تم إزالة fullScreenIntent: true
             ongoing: true,
             category: fln.AndroidNotificationCategory.call,
             playSound: true,
             enableVibration: true,
             vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500]),
-            sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+            sound: null,
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
             timeoutAfter: null,
