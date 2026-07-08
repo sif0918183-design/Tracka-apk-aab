@@ -22,6 +22,11 @@ import 'webview_popup.dart';
 // أنواع إشعارات منصة السفر — هادئة بدون صوت مزعج أو مودال
 const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 
+// ✅ متغيرات للتحكم في تشغيل الصوت والاهتزاز
+AudioPlayer? _audioPlayer;
+Timer? _alertTimer;
+bool _isAlertPlaying = false;
+
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
   if (rideId == null && data['payload'] != null) {
@@ -88,7 +93,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else {
-    // إشعار طارئ لطلبات الرحلات العادية
+    // ✅ إشعار طارئ محسّن لطلبات الرحلات العادية
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond, title, body,
@@ -97,16 +102,17 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           'emergency_channel_v11',
           'تنبيهات الطوارئ - تراكا',
           importance: fln.Importance.max,
-          priority: fln.Priority.high,
+          priority: fln.Priority.max,
           fullScreenIntent: true,
           ongoing: true,
           category: fln.AndroidNotificationCategory.call,
           playSound: true,
-          additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
-          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500]),
+          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
+          timeoutAfter: null,
         ),
       ),
       payload: jsonEncode(data),
@@ -144,7 +150,15 @@ Future<void> main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzbWx5aXlnamFnbWhuZ2xyaG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5NDc3NjMsImV4cCI6MjA4MTUyMzc2M30.QviVinAng-ILq0umvI5UZCFEvNpP3nI0kW_hSaXxNps',
   );
 
-  await [Permission.notification, Permission.location, Permission.locationAlways, Permission.camera, Permission.ignoreBatteryOptimizations].request();
+  await [
+    Permission.notification,
+    Permission.location,
+    Permission.locationAlways,
+    Permission.camera,
+    Permission.ignoreBatteryOptimizations,
+    Permission.vibrate,
+  ].request();
+  
   _initForegroundTask();
   runApp(const DriverApp());
 }
@@ -158,7 +172,12 @@ void _initForegroundTask() {
       priority: NotificationPriority.HIGH,
     ),
     iosNotificationOptions: const IOSNotificationOptions(showNotification: true, playSound: false),
-    foregroundTaskOptions: ForegroundTaskOptions(eventAction: ForegroundTaskEventAction.repeat(5000), autoRunOnBoot: true, allowWakeLock: true, allowWifiLock: true),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(5000),
+      autoRunOnBoot: true,
+      allowWakeLock: true,
+      allowWifiLock: true,
+    ),
   );
 }
 
@@ -166,7 +185,10 @@ class DriverApp extends StatelessWidget {
   const DriverApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(debugShowCheckedModeBanner: false, home: DriverHome());
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: DriverHome(),
+    );
   }
 }
 
@@ -197,15 +219,27 @@ class _DriverHomeState extends State<DriverHome> {
     _initConnectivity();
   }
 
+  @override
+  void dispose() {
+    _stopAlertSound();
+    statusSyncTimer?.cancel();
+    connectivitySubscription?.cancel();
+    _audioPlayer?.dispose();
+    super.dispose();
+  }
+
   Future<void> _initNotifications() async {
     const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-    await notifications.initialize(const fln.InitializationSettings(android: androidInit),
-      onDidReceiveNotificationResponse: (details) { if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!)); }
+    await notifications.initialize(
+      const fln.InitializationSettings(android: androidInit),
+      onDidReceiveNotificationResponse: (details) {
+        if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
+      }
     );
 
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
-    // قناة طلبات الرحلات العادية (صوت مزعج + FLAG_INSISTENT)
+    // ✅ قناة طلبات الرحلات العادية (محسّنة مع صوت واهتزاز قوي)
     const urgentChan = fln.AndroidNotificationChannel(
       'emergency_channel_v11',
       'تنبيهات الطوارئ - تراكا',
@@ -217,6 +251,19 @@ class _DriverHomeState extends State<DriverHome> {
       sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
     );
     await androidImplementation?.createNotificationChannel(urgentChan);
+
+    // ✅ قناة ثانية للنسخ الاحتياطي (بصوت مختلف)
+    const backupChan = fln.AndroidNotificationChannel(
+      'emergency_channel_backup',
+      'تنبيهات الطوارئ - تراكا (نسخة احتياطية)',
+      description: 'قناة احتياطية للإشعارات الطارئة',
+      importance: fln.Importance.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+      sound: fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+    );
+    await androidImplementation?.createNotificationChannel(backupChan);
 
     // قناة منصة السفر (صوت عادي هادئ)
     const travelChan = fln.AndroidNotificationChannel(
@@ -235,9 +282,14 @@ class _DriverHomeState extends State<DriverHome> {
     await messaging.requestPermission(alert: true, badge: true, sound: true);
     fcmToken = await messaging.getToken();
     if (fcmToken != null) _sendTokenToPWA(fcmToken!);
-    messaging.onTokenRefresh.listen((newToken) { fcmToken = newToken; _sendTokenToPWA(newToken); });
+    messaging.onTokenRefresh.listen((newToken) { 
+      fcmToken = newToken; 
+      _sendTokenToPWA(newToken); 
+    });
     FirebaseMessaging.onMessageOpenedApp.listen((message) => _handleNotificationClick(message.data));
-    messaging.getInitialMessage().then((message) { if (message != null) _handleNotificationClick(message.data); });
+    messaging.getInitialMessage().then((message) { 
+      if (message != null) _handleNotificationClick(message.data); 
+    });
     FirebaseMessaging.onMessage.listen((message) => _handleFcmMessage(message));
   }
 
@@ -245,9 +297,11 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
+    // ✅ إيقاف الصوت والاهتزاز عند النقر على الإشعار
+    _stopAlertSound();
+
     // إشعارات منصة السفر → فتح صفحة السفر مباشرة
     if (isTravelNotif) {
-      _stopAlerts();
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
@@ -258,7 +312,6 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     // طلبات الرحلات العادية → accept-ride.html
-    _stopAlerts();
     dynamic rideId = data['ride_id'] ?? data['rideId'];
 
     if (rideId == null && data['payload'] != null) {
@@ -293,6 +346,9 @@ class _DriverHomeState extends State<DriverHome> {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
 
+    // ✅ تشغيل الصوت والاهتزاز فوراً
+    _playAlertSound();
+
     await _showLocalNotification(data);
     _showRideRequestModal(data);
     await _sendToPWA(data);
@@ -312,7 +368,11 @@ class _DriverHomeState extends State<DriverHome> {
       if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
       else setState(() => _pendingUrl = lastUrl);
     }
-    if (driverId != null) { _listenForRides(); _startStatusSyncWithPWA(); _startForegroundService(); }
+    if (driverId != null) { 
+      _listenForRides(); 
+      _startStatusSyncWithPWA(); 
+      _startForegroundService(); 
+    }
   }
 
   Future<void> _saveDriver(String id) async {
@@ -335,7 +395,10 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _initConnectivity() {
     connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
-      if (result != ConnectivityResult.none && driverId != null) { _listenForRides(); _updateDriverStatusInSupabase(true); }
+      if (result != ConnectivityResult.none && driverId != null) { 
+        _listenForRides(); 
+        _updateDriverStatusInSupabase(true); 
+      }
     });
   }
 
@@ -354,11 +417,88 @@ class _DriverHomeState extends State<DriverHome> {
           String? rideId = _extractRideId(rideData);
           if (await _isDuplicateRide(rideId)) return;
 
+          // ✅ تشغيل الصوت والاهتزاز للرحلات القادمة من Supabase
+          _playAlertSound();
+
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
           await _sendToPWA(rideData);
         },
       )..subscribe();
+  }
+
+  // ✅ دالة محسّنة لتشغيل الصوت والاهتزاز المتكرر
+  void _playAlertSound() {
+    _stopAlertSound();
+    _isAlertPlaying = true;
+
+    // ✅ اهتزاز متكرر
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+    }
+
+    // ✅ تشغيل الصوت عبر AudioPlayer
+    try {
+      _audioPlayer = AudioPlayer();
+      _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+      
+      // ✅ تكرار الصوت كل 3 ثوانٍ
+      _alertTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+        if (_isAlertPlaying) {
+          try {
+            await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+          } catch (_) {}
+        } else {
+          timer.cancel();
+        }
+      });
+    } catch (_) {
+      // ✅ في حال فشل تشغيل الصوت المخصص، استخدام الصوت الافتراضي عبر النوتيفيكيشن
+      _playFallbackSound();
+    }
+
+    // ✅ إيقاف الصوت تلقائياً بعد 30 ثانية
+    Future.delayed(const Duration(seconds: 30), () {
+      _stopAlertSound();
+    });
+  }
+
+  // ✅ تشغيل صوت احتياطي عبر الإشعارات
+  void _playFallbackSound() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final testNotif = fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          'emergency_channel_backup',
+          'تنبيهات الطوارئ - تراكا',
+          importance: fln.Importance.max,
+          priority: fln.Priority.max,
+          playSound: true,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 500, 300, 500]),
+          category: fln.AndroidNotificationCategory.call,
+        ),
+      );
+      await notifications.show(
+        999,
+        '🔔 تنبيه',
+        'طلب رحلة جديد',
+        testNotif,
+      );
+    } catch (_) {}
+  }
+
+  // ✅ إيقاف الصوت والاهتزاز
+  void _stopAlertSound() {
+    _isAlertPlaying = false;
+    _alertTimer?.cancel();
+    _alertTimer = null;
+    _audioPlayer?.stop();
+    _audioPlayer?.dispose();
+    _audioPlayer = null;
+    try {
+      Vibration.cancel();
+    } catch (_) {}
   }
 
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
@@ -369,27 +509,28 @@ class _DriverHomeState extends State<DriverHome> {
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
-        'طلب رحلة جديد ',
+        '🚨 طلب رحلة جديد',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
             'emergency_channel_v11',
             'تنبيهات الطوارئ - Tracka',
             importance: fln.Importance.max,
-            priority: fln.Priority.high,
+            priority: fln.Priority.max,
             fullScreenIntent: true,
             ongoing: true,
             category: fln.AndroidNotificationCategory.call,
             playSound: true,
-            additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
+            enableVibration: true,
+            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500]),
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+            channelShowBadge: true,
+            visibility: fln.NotificationVisibility.public,
+            timeoutAfter: null,
           ),
         ),
         payload: jsonEncode(data),
       );
-      if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
-      }
     } catch (_) {}
   }
 
@@ -415,23 +556,43 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _showRideRequestModal(Map<String, dynamic> data) {
-    showDialog(context: context, barrierDismissible: false, builder: (context) => AlertDialog(
-      title: const Text('طلب رحلة جديد', textAlign: TextAlign.center),
-      content: Text("${data['customer_name'] ?? 'عميل'} - ${data['amount'] ?? 0} SDG"),
-      actions: [
-        ElevatedButton(onPressed: () { _acceptRide(data); Navigator.pop(context); }, child: const Text('قبول')),
-        TextButton(onPressed: () { _stopAlerts(); Navigator.pop(context); }, child: const Text('تجاهل'))
-      ],
-    ));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('طلب رحلة جديد', textAlign: TextAlign.center),
+        content: Text("${data['customer_name'] ?? 'عميل'} - ${data['amount'] ?? 0} SDG"),
+        actions: [
+          ElevatedButton(
+            onPressed: () { 
+              _stopAlertSound();
+              _acceptRide(data); 
+              Navigator.pop(context); 
+            }, 
+            child: const Text('قبول')
+          ),
+          TextButton(
+            onPressed: () { 
+              _stopAlertSound();
+              Navigator.pop(context); 
+            }, 
+            child: const Text('تجاهل')
+          )
+        ],
+      ),
+    );
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    _stopAlerts();
-    try { await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); } catch (_) {}
+    _stopAlertSound();
+    try { 
+      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
+    } catch (_) {}
     if (web != null) await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
   }
 
   void _stopAlerts() {
+    _stopAlertSound();
     Vibration.cancel();
     notifications.cancelAll();
   }
@@ -441,7 +602,10 @@ class _DriverHomeState extends State<DriverHome> {
     await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
   }
 
-  void _notifyPWAOfDriver(String id) { if (web == null) return; web!.evaluateJavascript(source: "localStorage.setItem('driver_id', '$id');"); }
+  void _notifyPWAOfDriver(String id) { 
+    if (web == null) return; 
+    web!.evaluateJavascript(source: "localStorage.setItem('driver_id', '$id');"); 
+  }
 
   void _startStatusSyncWithPWA() {
     statusSyncTimer?.cancel();
@@ -454,7 +618,13 @@ class _DriverHomeState extends State<DriverHome> {
 
   Future<void> _updateDriverStatusInSupabase(bool isOnline) async {
     if (driverId == null) return;
-    try { await supabase.from('driver_locations').upsert({'driver_id': driverId, 'is_online': isOnline, 'last_seen': DateTime.now().toIso8601String()}).timeout(const Duration(seconds: 15)); } catch (_) {}
+    try { 
+      await supabase.from('driver_locations').upsert({
+        'driver_id': driverId, 
+        'is_online': isOnline, 
+        'last_seen': DateTime.now().toIso8601String()
+      }).timeout(const Duration(seconds: 15)); 
+    } catch (_) {}
   }
 
   @override
@@ -479,14 +649,19 @@ class _DriverHomeState extends State<DriverHome> {
             ),
             onWebViewCreated: (controller) {
               web = controller;
-              controller.addJavaScriptHandler(handlerName: 'driverLogin', callback: (args) { if (args.isNotEmpty && args[0] is Map) _saveDriver(args[0]['driverId'].toString()); });
-              controller.addJavaScriptHandler(handlerName: 'stopAlerts', callback: (args) { _stopAlerts(); });
+              controller.addJavaScriptHandler(handlerName: 'driverLogin', callback: (args) { 
+                if (args.isNotEmpty && args[0] is Map) _saveDriver(args[0]['driverId'].toString()); 
+              });
+              controller.addJavaScriptHandler(handlerName: 'stopAlerts', callback: (args) { 
+                _stopAlerts(); 
+              });
 
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
               }
             },
-            onGeolocationPermissionsShowPrompt: (controller, origin) async => GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
+            onGeolocationPermissionsShowPrompt: (controller, origin) async => 
+                GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
             onLoadStop: (controller, url) async {
               _isPageLoaded = true;
               if (url != null) {
@@ -521,12 +696,5 @@ class _DriverHomeState extends State<DriverHome> {
       final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
       if (res != null && res != 'null' && res != driverId) _saveDriver(res);
     });
-  }
-
-  @override
-  void dispose() {
-    statusSyncTimer?.cancel();
-    connectivitySubscription?.cancel();
-    super.dispose();
   }
 }
