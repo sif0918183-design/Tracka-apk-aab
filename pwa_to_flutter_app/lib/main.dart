@@ -97,14 +97,16 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } else {
     String? rideId = _extractRideId(data);
     await notifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond, title, body,
+      rideId?.hashCode ?? DateTime.now().millisecond,
+      title,
+      body,
       fln.NotificationDetails(
         android: fln.AndroidNotificationDetails(
-          _emergencyChannelId, // ✅ استخدام القناة الجديدة
+          _emergencyChannelId,
           _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
-          fullScreenIntent: true,
+          // ✅ تم إزالة fullScreenIntent: true
           ongoing: true,
           category: fln.AndroidNotificationCategory.call,
           playSound: true,
@@ -247,11 +249,11 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء القناة الجديدة
+      // ✅ إنشاء القناة الجديدة مع أعلى إعدادات الصوت والاهتزاز
       const urgentChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
-        description: 'قناة مخصصة لطلبات الرحلات الهامة جداً',
+        description: 'قناة مخصصة لطلبات الرحلات الهامة جداً - صوت واهتزاز عالي',
         importance: fln.Importance.max,
         playSound: true,
         enableVibration: true,
@@ -350,6 +352,7 @@ class _DriverHomeState extends State<DriverHome> {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
 
+    // ✅ تشغيل الصوت والاهتزاز المتكرر فوراً
     _playAlertSound();
     await _showLocalNotification(data);
     _showRideRequestModal(data);
@@ -419,6 +422,7 @@ class _DriverHomeState extends State<DriverHome> {
           String? rideId = _extractRideId(rideData);
           if (await _isDuplicateRide(rideId)) return;
 
+          // ✅ تشغيل الصوت والاهتزاز للرحلات القادمة من Supabase
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
@@ -427,17 +431,21 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
+  // ✅ تشغيل الصوت المتكرر والاهتزاز القوي
   void _playAlertSound() {
     _stopAlertSound();
     _isAlertPlaying = true;
 
+    // ✅ اهتزاز قوي ومتكرر
     _vibratePhone();
 
+    // ✅ تشغيل الصوت عبر AudioPlayer مع تكرار
     try {
       _audioPlayer = AudioPlayer();
       _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
       
-      _alertTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      // ✅ تكرار الصوت كل 2 ثانية (أسرع من السابق)
+      _alertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
         if (_isAlertPlaying) {
           try {
             await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
@@ -447,22 +455,34 @@ class _DriverHomeState extends State<DriverHome> {
         }
       });
     } catch (_) {
+      // ✅ في حال فشل تشغيل الصوت المخصص، استخدام الصوت الافتراضي عبر الإشعار
       _playFallbackSound();
     }
 
+    // ✅ إيقاف الصوت تلقائياً بعد 30 ثانية
     Future.delayed(const Duration(seconds: 30), () {
       _stopAlertSound();
     });
   }
 
+  // ✅ اهتزاز قوي ومتكرر
   void _vibratePhone() async {
     try {
       if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+        // ✅ نمط اهتزاز طويل ومتكرر
+        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+        
+        // ✅ اهتزاز إضافي بعد 3 ثوانٍ للتأكيد
+        Future.delayed(const Duration(seconds: 3), () {
+          if (_isAlertPlaying) {
+            Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400], repeat: 0);
+          }
+        });
       }
     } catch (_) {}
   }
 
+  // ✅ تشغيل صوت احتياطي عبر الإشعارات
   void _playFallbackSound() async {
     try {
       final testNotif = fln.NotificationDetails(
@@ -473,7 +493,7 @@ class _DriverHomeState extends State<DriverHome> {
           priority: fln.Priority.max,
           playSound: true,
           enableVibration: true,
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500]),
+          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500]),
           category: fln.AndroidNotificationCategory.call,
         ),
       );
@@ -486,6 +506,7 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ إيقاف الصوت والاهتزاز
   void _stopAlertSound() {
     _isAlertPlaying = false;
     _alertTimer?.cancel();
@@ -510,11 +531,11 @@ class _DriverHomeState extends State<DriverHome> {
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
-            _emergencyChannelId, // ✅ استخدام القناة الجديدة
+            _emergencyChannelId,
             _emergencyChannelName,
             importance: fln.Importance.max,
             priority: fln.Priority.max,
-            fullScreenIntent: true,
+            // ✅ تم إزالة fullScreenIntent: true
             ongoing: true,
             category: fln.AndroidNotificationCategory.call,
             playSound: true,
