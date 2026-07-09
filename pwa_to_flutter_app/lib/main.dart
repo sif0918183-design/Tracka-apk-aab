@@ -23,18 +23,14 @@ import 'webview_popup.dart';
 // أنواع إشعارات منصة السفر
 const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 
-// ✅ متغيرات للتحكم في تشغيل الصوت والاهتزاز
-AudioPlayer? _audioPlayer;
-Timer? _alertTimer;
-bool _isAlertPlaying = false;
-
-// ✅ متغيرات القناة الديناميكية
-String? _dynamicChannelId;
-String? _dynamicChannelName;
-
-// ✅ معرف القناة الثابت للرحلات الجديدة (يجب أن يتطابق مع API)
+// ✅ معرف القناة الثابت
 const String _emergencyChannelId = 'emergency_channel_default';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
+
+// ✅ متغيرات عالمية للصوت والاهتزاز
+static AudioPlayer? _globalAudioPlayer;
+static Timer? _globalAlertTimer;
+static bool _globalIsAlertPlaying = false;
 
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
@@ -62,6 +58,65 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
+// ✅ تشغيل الصوت والاهتزاز المتكرر في الخلفية
+void _playAlertSoundInBackground() {
+  _globalIsAlertPlaying = true;
+  
+  // ✅ تشغيل الاهتزاز
+  try {
+    if (Vibration.hasVibrator()?.then((has) {
+      if (has) {
+        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+      }
+    }) ?? false) {}
+  } catch (_) {}
+  
+  // ✅ تشغيل الصوت
+  try {
+    _globalAudioPlayer = AudioPlayer();
+    _globalAudioPlayer!.setVolume(1.0);
+    _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
+    _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+    
+    _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (_globalIsAlertPlaying) {
+        try {
+          if (_globalAudioPlayer?.state == PlayerState.stopped || 
+              _globalAudioPlayer?.state == PlayerState.completed) {
+            await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+          }
+        } catch (_) {}
+      } else {
+        timer.cancel();
+      }
+    });
+  } catch (_) {
+    try {
+      _globalAudioPlayer = AudioPlayer();
+      _globalAudioPlayer!.setVolume(1.0);
+      _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
+      _globalAudioPlayer!.play(AssetSource('ride_request_sound.mp3'));
+    } catch (_) {}
+  }
+  
+  // ✅ إيقاف تلقائي بعد 35 ثانية
+  Future.delayed(const Duration(seconds: 35), () {
+    _stopAlertSoundInBackground();
+  });
+}
+
+void _stopAlertSoundInBackground() {
+  _globalIsAlertPlaying = false;
+  _globalAlertTimer?.cancel();
+  _globalAlertTimer = null;
+  _globalAudioPlayer?.stop();
+  _globalAudioPlayer?.dispose();
+  _globalAudioPlayer = null;
+  try {
+    Vibration.cancel();
+  } catch (_) {}
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -73,6 +128,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (!isTravelNotif) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
+    
+    // ✅ تشغيل الصوت والاهتزاز المتكرر عند استلام الإشعار في الخلفية
+    _playAlertSoundInBackground();
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -230,7 +288,7 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlertSound();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
-    _audioPlayer?.dispose();
+    _globalAudioPlayer?.dispose();
     super.dispose();
   }
 
@@ -239,6 +297,7 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
+        _stopAlertSound();
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
@@ -262,7 +321,7 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية (يجب أن تتطابق مع API)
+      // ✅ إنشاء قناة الطوارئ الرئيسية
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -285,18 +344,6 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(travelChan);
       
-      // ✅ قناة احتياطية
-      const backupChan = fln.AndroidNotificationChannel(
-        'emergency_channel_backup',
-        'تنبيهات الطوارئ - احتياطي',
-        description: 'قناة احتياطية للإشعارات الطارئة',
-        importance: fln.Importance.max,
-        playSound: true,
-        enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.alarm,
-      );
-      await androidImplementation.createNotificationChannel(backupChan);
-      
       print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
     }
   }
@@ -310,11 +357,21 @@ class _DriverHomeState extends State<DriverHome> {
       fcmToken = newToken; 
       _sendTokenToPWA(newToken); 
     });
-    FirebaseMessaging.onMessageOpenedApp.listen((message) => _handleNotificationClick(message.data));
-    messaging.getInitialMessage().then((message) { 
-      if (message != null) _handleNotificationClick(message.data); 
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      _stopAlertSound();
+      _handleNotificationClick(message.data);
     });
-    FirebaseMessaging.onMessage.listen((message) => _handleFcmMessage(message));
+    messaging.getInitialMessage().then((message) { 
+      if (message != null) {
+        _stopAlertSound();
+        _handleNotificationClick(message.data); 
+      }
+    });
+    FirebaseMessaging.onMessage.listen((message) {
+      // ✅ عندما يكون التطبيق في المقدمة
+      _playAlertSound();
+      _handleFcmMessage(message);
+    });
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
@@ -365,7 +422,6 @@ class _DriverHomeState extends State<DriverHome> {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
 
-    // ✅ تشغيل الصوت والاهتزاز المتكرر فوراً
     _playAlertSound();
     await _showLocalNotification(data);
     _showRideRequestModal(data);
@@ -443,66 +499,58 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت المتكرر
   void _playAlertSound() {
     _stopAlertSound();
-    _isAlertPlaying = true;
+    _globalIsAlertPlaying = true;
 
-    // ✅ اهتزاز قوي ومتكرر
+    // ✅ اهتزاز
     _vibratePhone();
 
-    // ✅ تشغيل الصوت من assets مع تكرار
-    _playSoundFromAssets();
-
-    // ✅ إيقاف الصوت تلقائياً بعد 35 ثانية
-    Future.delayed(const Duration(seconds: 35), () {
-      _stopAlertSound();
-    });
-  }
-
-  void _playSoundFromAssets() async {
+    // ✅ صوت من assets
     try {
-      _audioPlayer = AudioPlayer();
-      await _audioPlayer!.setVolume(1.0);
-      await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
-      await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+      _globalAudioPlayer = AudioPlayer();
+      _globalAudioPlayer!.setVolume(1.0);
+      _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
+      _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
       
-      _alertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-        if (_isAlertPlaying) {
+      _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+        if (_globalIsAlertPlaying) {
           try {
-            if (_audioPlayer?.state == PlayerState.stopped || 
-                _audioPlayer?.state == PlayerState.completed) {
-              await _audioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
+            if (_globalAudioPlayer?.state == PlayerState.stopped || 
+                _globalAudioPlayer?.state == PlayerState.completed) {
+              await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
             }
           } catch (_) {}
         } else {
           timer.cancel();
         }
       });
-    } catch (e) {
+    } catch (_) {
       try {
-        _audioPlayer = AudioPlayer();
-        await _audioPlayer!.setVolume(1.0);
-        await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer!.play(AssetSource('ride_request_sound.mp3'));
+        _globalAudioPlayer = AudioPlayer();
+        _globalAudioPlayer!.setVolume(1.0);
+        _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
+        _globalAudioPlayer!.play(AssetSource('ride_request_sound.mp3'));
       } catch (_) {}
     }
+
+    Future.delayed(const Duration(seconds: 35), () {
+      _stopAlertSound();
+    });
   }
 
   void _vibratePhone() async {
     try {
       if (await Vibration.hasVibrator() ?? false) {
-        // ✅ اهتزاز طويل وقوي جداً
         Vibration.vibrate(pattern: [
           0, 600, 200, 600, 200, 600, 200, 600, 
           200, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600
         ], repeat: 0);
         
-        // ✅ اهتزازات إضافية متكررة
         for (int i = 2; i <= 12; i += 2) {
           Future.delayed(Duration(seconds: i), () {
-            if (_isAlertPlaying) {
+            if (_globalIsAlertPlaying) {
               Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400], repeat: 0);
             }
           });
@@ -512,12 +560,12 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _stopAlertSound() {
-    _isAlertPlaying = false;
-    _alertTimer?.cancel();
-    _alertTimer = null;
-    _audioPlayer?.stop();
-    _audioPlayer?.dispose();
-    _audioPlayer = null;
+    _globalIsAlertPlaying = false;
+    _globalAlertTimer?.cancel();
+    _globalAlertTimer = null;
+    _globalAudioPlayer?.stop();
+    _globalAudioPlayer?.dispose();
+    _globalAudioPlayer = null;
     try {
       Vibration.cancel();
     } catch (_) {}
@@ -543,7 +591,7 @@ class _DriverHomeState extends State<DriverHome> {
             category: fln.AndroidNotificationCategory.alarm,
             playSound: true,
             enableVibration: true,
-            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
             sound: null,
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
