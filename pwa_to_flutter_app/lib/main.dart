@@ -27,10 +27,10 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _emergencyChannelId = 'emergency_channel_default';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
-// ✅ متغيرات عالمية للصوت والاهتزاز
-static AudioPlayer? _globalAudioPlayer;
-static Timer? _globalAlertTimer;
-static bool _globalIsAlertPlaying = false;
+// ✅ متغيرات عالمية للصوت والاهتزاز (غير static)
+AudioPlayer? _globalAudioPlayer;
+Timer? _globalAlertTimer;
+bool _globalIsAlertPlaying = false;
 
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
@@ -63,14 +63,8 @@ void _playAlertSoundInBackground() {
   _globalIsAlertPlaying = true;
   
   // ✅ تشغيل الاهتزاز
-  try {
-    if (Vibration.hasVibrator()?.then((has) {
-      if (has) {
-        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
-      }
-    }) ?? false) {}
-  } catch (_) {}
-  
+  _vibratePhoneBackground();
+
   // ✅ تشغيل الصوت
   try {
     _globalAudioPlayer = AudioPlayer();
@@ -103,6 +97,16 @@ void _playAlertSoundInBackground() {
   Future.delayed(const Duration(seconds: 35), () {
     _stopAlertSoundInBackground();
   });
+}
+
+void _vibratePhoneBackground() {
+  try {
+    Vibration.hasVibrator().then((hasVibrator) {
+      if (hasVibrator == true) {
+        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
+      }
+    });
+  } catch (_) {}
 }
 
 void _stopAlertSoundInBackground() {
@@ -541,7 +545,8 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _vibratePhone() async {
     try {
-      if (await Vibration.hasVibrator() ?? false) {
+      bool? hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator == true) {
         Vibration.vibrate(pattern: [
           0, 600, 200, 600, 200, 600, 200, 600, 
           200, 600, 200, 600, 200, 600, 200, 600,
