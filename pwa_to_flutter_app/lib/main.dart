@@ -214,9 +214,12 @@ Future<void> main() async {
     await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
 
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
   await Supabase.initialize(
-    url: 'https://zsmlyiygjagmhnglrhoa.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzbWx5aXlnamFnbWhuZ2xyaG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5NDc3NjMsImV4cCI6MjA4MTUyMzc2M30.QviVinAng-ILq0umvI5UZCFEvNpP3nI0kW_hSaXxNps',
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   await [
@@ -352,14 +355,40 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ ✅ ✅ الدالة الجديدة لتحديث التوكن عبر RPC ✅ ✅ ✅
+  Future<void> _updateTokenInDrivers(String token) async {
+    if (driverId == null) return;
+    try {
+      final response = await supabase.rpc(
+        'update_driver_fcm_token',
+        params: {
+          'p_driver_id': driverId,
+          'p_fcm_token': token,
+        },
+      );
+      
+      if (response == true) {
+        print('✅ Token updated successfully via RPC');
+      } else {
+        print('❌ Failed to update token via RPC');
+      }
+    } catch (e) {
+      print('❌ Error updating token via RPC: $e');
+    }
+  }
+
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
     fcmToken = await messaging.getToken();
-    if (fcmToken != null) _sendTokenToPWA(fcmToken!);
-    messaging.onTokenRefresh.listen((newToken) { 
+    if (fcmToken != null) {
+      _sendTokenToPWA(fcmToken!);
+      await _updateTokenInDrivers(fcmToken!);  // ✅ ✅ ✅ حفظ التوكن عبر RPC
+    }
+    messaging.onTokenRefresh.listen((newToken) async { 
       fcmToken = newToken; 
-      _sendTokenToPWA(newToken); 
+      _sendTokenToPWA(newToken);
+      await _updateTokenInDrivers(newToken);  // ✅ ✅ ✅ تحديث التوكن عبر RPC
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       _stopAlertSound();
@@ -457,6 +486,12 @@ class _DriverHomeState extends State<DriverHome> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driver_id', id);
     driverId = id;
+    
+    // ✅ ✅ ✅ حفظ التوكن عند تسجيل الدخول
+    if (fcmToken != null) {
+      await _updateTokenInDrivers(fcmToken!);
+    }
+    
     _listenForRides();
     _notifyPWAOfDriver(id);
     _startForegroundService();
