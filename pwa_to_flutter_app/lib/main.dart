@@ -167,7 +167,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
-  } else {
+  } else if (isRideRequest) {
     // ✅ إشعارات RIDE_REQUEST (طوارئ) تستخدم القناة الخاصة
     String? rideId = _extractRideId(data);
     await notifications.show(
@@ -408,7 +408,7 @@ class _DriverHomeState extends State<DriverHome> {
       }
     });
     
-    // ✅ ✅ ✅ تعديل هنا: معالجة الإشعار عند وصوله والتطبيق في المقدمة
+    // ✅ معالجة الإشعار عند وصوله والتطبيق في المقدمة
     FirebaseMessaging.onMessage.listen((message) {
       _handleFcmMessage(message);
     });
@@ -449,7 +449,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
-  // ✅ ✅ ✅ تعديل _handleFcmMessage لتمييز أنواع الإشعارات ✅ ✅ ✅
+  // ✅ ✅ ✅ معالجة الإشعارات مع تمييز الأنواع ومنع التكرار ✅ ✅ ✅
   void _handleFcmMessage(RemoteMessage message) async {
     Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
     final String notifType = data['type']?.toString() ?? '';
@@ -464,15 +464,21 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     // ✅ إشعارات RIDE_REQUEST (الرحلات الفورية)
-    // تشغل الصوت والاهتزاز المتصل
+    // تشغل الصوت والاهتزاز المتصل + نافذة منبثقة
     if (isRideRequest) {
       String? rideId = _extractRideId(data);
       if (await _isDuplicateRide(rideId)) return;
 
+      _stopAlertSound();
       _playAlertSound();
-      await _showLocalNotification(data);
+      
+      // ✅ عرض النافذة المنبثقة
       _showRideRequestModal(data);
+      
+      // ✅ إرسال إلى PWA
       await _sendToPWA(data);
+      
+      // ✅ ✅ ✅ لا نعرض إشعاراً محلياً (لتجنب التكرار مع إشعار Firebase)
       return;
     }
 
@@ -687,25 +693,34 @@ class _DriverHomeState extends State<DriverHome> {
   void _showRideRequestModal(Map<String, dynamic> data) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false,  // ✅ منع الإغلاق بالنقر خارج النافذة
       builder: (context) => AlertDialog(
         title: const Text('طلب رحلة جديد', textAlign: TextAlign.center),
-        content: Text("${data['customer_name'] ?? 'عميل'} - ${data['amount'] ?? 0} SDG"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("${data['customer_name'] ?? 'عميل'}"),
+            const SizedBox(height: 8),
+            Text("${data['amount'] ?? 0} SDG", 
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ],
+        ),
         actions: [
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             onPressed: () { 
               _stopAlertSound();
               _acceptRide(data); 
               Navigator.pop(context); 
             }, 
-            child: const Text('قبول')
+            child: const Text('قبول', style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () { 
               _stopAlertSound();
               Navigator.pop(context); 
             }, 
-            child: const Text('تجاهل')
+            child: const Text('تجاهل'),
           )
         ],
       ),
