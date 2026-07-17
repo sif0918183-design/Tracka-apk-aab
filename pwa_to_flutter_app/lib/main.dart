@@ -20,6 +20,9 @@ import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'webview_popup.dart';
 
+// ✅ Global Navigator Key for Overlay
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 // أنواع إشعارات منصة السفر (الهادئة)
 const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 
@@ -263,9 +266,10 @@ class DriverApp extends StatelessWidget {
   const DriverApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
+      navigatorKey: navigatorKey,  // ✅ لإستخدام Overlay
       debugShowCheckedModeBanner: false,
-      home: DriverHome(),
+      home: const DriverHome(),
     );
   }
 }
@@ -287,6 +291,9 @@ class _DriverHomeState extends State<DriverHome> {
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
+  
+  // ✅ Overlay entry for persistent modal
+  OverlayEntry? _overlayEntry;
 
   @override
   void initState() {
@@ -300,6 +307,8 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void dispose() {
     _stopAlertSound();
+    _overlayEntry?.remove();
+    _overlayEntry = null;
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
@@ -312,6 +321,8 @@ class _DriverHomeState extends State<DriverHome> {
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
         _stopAlertSound();
+        _overlayEntry?.remove();
+        _overlayEntry = null;
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
@@ -362,7 +373,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
-  // ✅ ✅ ✅ الدالة الجديدة لتحديث التوكن عبر RPC ✅ ✅ ✅
+  // ✅ ✅ ✅ الدالة لتحديث التوكن عبر RPC ✅ ✅ ✅
   Future<void> _updateTokenInDrivers(String token) async {
     if (driverId == null) return;
     try {
@@ -387,6 +398,14 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
+    
+    // ✅ منع Firebase من عرض الإشعار في المقدمة (لتجنب التكرار)
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
+    
     fcmToken = await messaging.getToken();
     if (fcmToken != null) {
       _sendTokenToPWA(fcmToken!);
@@ -399,11 +418,15 @@ class _DriverHomeState extends State<DriverHome> {
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       _stopAlertSound();
+      _overlayEntry?.remove();
+      _overlayEntry = null;
       _handleNotificationClick(message.data);
     });
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
         _stopAlertSound();
+        _overlayEntry?.remove();
+        _overlayEntry = null;
         _handleNotificationClick(message.data); 
       }
     });
@@ -419,6 +442,8 @@ class _DriverHomeState extends State<DriverHome> {
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
     _stopAlertSound();
+    _overlayEntry?.remove();
+    _overlayEntry = null;
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
@@ -464,7 +489,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     // ✅ إشعارات RIDE_REQUEST (الرحلات الفورية)
-    // تشغل الصوت والاهتزاز المتصل + نافذة منبثقة
+    // تشغل الصوت والاهتزاز المتصل + نافذة منبثقة ثابتة
     if (isRideRequest) {
       String? rideId = _extractRideId(data);
       if (await _isDuplicateRide(rideId)) return;
@@ -472,7 +497,7 @@ class _DriverHomeState extends State<DriverHome> {
       _stopAlertSound();
       _playAlertSound();
       
-      // ✅ عرض النافذة المنبثقة
+      // ✅ عرض النافذة المنبثقة الثابتة (باستخدام Overlay)
       _showRideRequestModal(data);
       
       // ✅ إرسال إلى PWA
@@ -598,6 +623,7 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (_) {}
     }
 
+    // ✅ إيقاف تلقائي بعد 35 ثانية (الصوت فقط، النافذة تبقى)
     Future.delayed(const Duration(seconds: 35), () {
       _stopAlertSound();
     });
@@ -690,41 +716,102 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ ✅ ✅ نافذة منبثقة ثابتة باستخدام Overlay ✅ ✅ ✅
   void _showRideRequestModal(Map<String, dynamic> data) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,  // ✅ منع الإغلاق بالنقر خارج النافذة
-      builder: (context) => AlertDialog(
-        title: const Text('طلب رحلة جديد', textAlign: TextAlign.center),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("${data['customer_name'] ?? 'عميل'}"),
-            const SizedBox(height: 8),
-            Text("${data['amount'] ?? 0} SDG", 
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () { 
-              _stopAlertSound();
-              _acceptRide(data); 
-              Navigator.pop(context); 
-            }, 
-            child: const Text('قبول', style: TextStyle(color: Colors.white)),
+    // ✅ إزالة أي نافذة سابقة
+    _overlayEntry?.remove();
+    
+    // ✅ الحصول على context صحيح
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+    
+    _overlayEntry = OverlayEntry(
+      builder: (context) => Material(
+        color: Colors.black54,
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '🚨 طلب رحلة جديد',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const Divider(),
+                const SizedBox(height: 8),
+                Text(
+                  data['customer_name'] ?? 'عميل',
+                  style: const TextStyle(fontSize: 18),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${data['amount'] ?? 0} SDG',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                      ),
+                      onPressed: () {
+                        _stopAlertSound();
+                        _overlayEntry?.remove();
+                        _overlayEntry = null;
+                        _acceptRide(data);
+                      },
+                      child: const Text(
+                        'قبول',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                      ),
+                      onPressed: () {
+                        _stopAlertSound();
+                        _overlayEntry?.remove();
+                        _overlayEntry = null;
+                      },
+                      child: const Text(
+                        'تجاهل',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          TextButton(
-            onPressed: () { 
-              _stopAlertSound();
-              Navigator.pop(context); 
-            }, 
-            child: const Text('تجاهل'),
-          )
-        ],
+        ),
       ),
     );
+
+    // ✅ عرض النافذة فوق كل شيء
+    Overlay.of(context).insert(_overlayEntry!);
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
@@ -737,6 +824,8 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _stopAlerts() {
     _stopAlertSound();
+    _overlayEntry?.remove();
+    _overlayEntry = null;
     Vibration.cancel();
     notifications.cancelAll();
   }
