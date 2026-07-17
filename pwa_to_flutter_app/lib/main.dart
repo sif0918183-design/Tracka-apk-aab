@@ -20,8 +20,11 @@ import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'webview_popup.dart';
 
-// أنواع إشعارات منصة السفر
+// أنواع إشعارات منصة السفر (الهادئة)
 const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
+
+// ✅ نوع إشعار الرحلة الفورية (الطوارئ)
+const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
 const String _emergencyChannelId = 'emergency_channel_default';
@@ -58,7 +61,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ تشغيل الصوت والاهتزاز المتكرر في الخلفية
+// ✅ تشغيل الصوت والاهتزاز المتكرر في الخلفية (للرحلات الفورية فقط)
 void _playAlertSoundInBackground() {
   _globalIsAlertPlaying = true;
   
@@ -128,12 +131,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   Map<String, dynamic> data = message.data;
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
+  final bool isRideRequest = (notifType == _rideRequestType);
 
-  if (!isTravelNotif) {
+  // ✅ فقط إشعارات RIDE_REQUEST تشغل الصوت والاهتزاز في الخلفية
+  if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
     
-    // ✅ تشغيل الصوت والاهتزاز المتكرر عند استلام الإشعار في الخلفية
+    // ✅ تشغيل الصوت والاهتزاز المتكرر عند استلام إشعار رحلة فورية في الخلفية
     _playAlertSoundInBackground();
   }
 
@@ -144,6 +149,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
+  // ✅ إشعارات السفر (هادئة) تستخدم قناة travel_notifications
   if (isTravelNotif) {
     await notifications.show(
       DateTime.now().millisecond, title, body,
@@ -162,6 +168,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else {
+    // ✅ إشعارات RIDE_REQUEST (طوارئ) تستخدم القناة الخاصة
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
@@ -328,7 +335,7 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية
+      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -340,7 +347,7 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إشعارات السفر (هادئة)
+      // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -383,12 +390,12 @@ class _DriverHomeState extends State<DriverHome> {
     fcmToken = await messaging.getToken();
     if (fcmToken != null) {
       _sendTokenToPWA(fcmToken!);
-      await _updateTokenInDrivers(fcmToken!);  // ✅ ✅ ✅ حفظ التوكن عبر RPC
+      await _updateTokenInDrivers(fcmToken!);
     }
     messaging.onTokenRefresh.listen((newToken) async { 
       fcmToken = newToken; 
       _sendTokenToPWA(newToken);
-      await _updateTokenInDrivers(newToken);  // ✅ ✅ ✅ تحديث التوكن عبر RPC
+      await _updateTokenInDrivers(newToken);
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       _stopAlertSound();
@@ -400,9 +407,9 @@ class _DriverHomeState extends State<DriverHome> {
         _handleNotificationClick(message.data); 
       }
     });
+    
+    // ✅ ✅ ✅ تعديل هنا: معالجة الإشعار عند وصوله والتطبيق في المقدمة
     FirebaseMessaging.onMessage.listen((message) {
-      // ✅ عندما يكون التطبيق في المقدمة
-      _playAlertSound();
       _handleFcmMessage(message);
     });
   }
@@ -442,23 +449,35 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ ✅ ✅ تعديل _handleFcmMessage لتمييز أنواع الإشعارات ✅ ✅ ✅
   void _handleFcmMessage(RemoteMessage message) async {
     Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
+    final bool isRideRequest = (notifType == _rideRequestType);
 
+    // ✅ إشعارات السفر (DRIVER_OFFER, DRIVER_SELECTED, NEW_CHAT_MESSAGE)
+    // تظهر كإشعار عادي بدون صوت/اهتزاز متصل
     if (isTravelNotif) {
       await _showTravelNotification(data, message.notification);
       return;
     }
 
-    String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) return;
+    // ✅ إشعارات RIDE_REQUEST (الرحلات الفورية)
+    // تشغل الصوت والاهتزاز المتصل
+    if (isRideRequest) {
+      String? rideId = _extractRideId(data);
+      if (await _isDuplicateRide(rideId)) return;
 
-    _playAlertSound();
-    await _showLocalNotification(data);
-    _showRideRequestModal(data);
-    await _sendToPWA(data);
+      _playAlertSound();
+      await _showLocalNotification(data);
+      _showRideRequestModal(data);
+      await _sendToPWA(data);
+      return;
+    }
+
+    // ✅ أي إشعار آخر (احتياطي) - يظهر كإشعار عادي
+    await _showTravelNotification(data, message.notification);
   }
 
   void _sendTokenToPWA(String token) async {
@@ -643,6 +662,7 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ إشعارات السفر العادية (بدون صوت/اهتزاز متصل)
   Future<void> _showTravelNotification(Map<String, dynamic> data, RemoteNotification? notif) async {
     try {
       final String title = notif?.title ?? 'تراكا';
