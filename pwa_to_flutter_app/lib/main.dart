@@ -128,6 +128,50 @@ void _stopAlertSoundInBackground() {
   } catch (_) {}
 }
 
+RealtimeChannel? _bgRideStatusChannel;
+
+void _listenForRideStatusChangesBackground(String rideId) {
+  try {
+    Supabase.initialize(
+      url: const String.fromEnvironment('SUPABASE_URL'),
+      anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+    );
+  } catch (_) {}
+
+  final supabase = Supabase.instance.client;
+  _bgRideStatusChannel?.unsubscribe();
+  _bgRideStatusChannel = supabase.channel('bg_ride_status_$rideId')
+    ..onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'rides',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id',
+        value: rideId,
+      ),
+      callback: (payload) {
+        final data = payload.newRecord;
+        if (data != null) {
+          final String status = data['status']?.toString() ?? '';
+          if (status == 'accepted' ||
+              status == 'cancelled_by_customer' ||
+              status == 'no_drivers_found' ||
+              status == 'completed') {
+
+            _stopAlertSoundInBackground();
+            try {
+              FlutterOverlayWindow.closeOverlay();
+            } catch (_) {}
+
+            _bgRideStatusChannel?.unsubscribe();
+            _bgRideStatusChannel = null;
+          }
+        }
+      },
+    )..subscribe();
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -144,6 +188,30 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     
     // ✅ تشغيل الصوت والاهتزاز المتكرر عند استلام إشعار رحلة فورية في الخلفية
     _playAlertSoundInBackground();
+
+    // ✅ عرض النافذة العائمة في الخلفية
+    try {
+      if (await FlutterOverlayWindow.isPermissionGranted()) {
+        if (!await FlutterOverlayWindow.isActive()) {
+          await FlutterOverlayWindow.showOverlay(
+            height: 240,
+            width: 340,
+            alignment: OverlayAlignment.center,
+            enableDrag: true,
+            overlayTitle: "طلب رحلة جديد",
+            overlayContent: "لديك طلب رحلة جديد من العميل",
+          );
+        }
+        Future.delayed(const Duration(milliseconds: 500), () {
+          FlutterOverlayWindow.shareData(jsonEncode(data));
+        });
+      }
+    } catch (_) {}
+
+    // ✅ الاستماع لتغيرات حالة الرحلة في الخلفية
+    if (rideId != null) {
+      _listenForRideStatusChangesBackground(rideId);
+    }
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -1103,6 +1171,7 @@ class MyOverlayWidget extends StatefulWidget {
 class _MyOverlayWidgetState extends State<MyOverlayWidget> {
   String _customerName = "جاري التحميل...";
   String _amount = "0";
+  String? _rideId;
   StreamSubscription? _overlaySubscription;
 
   @override
@@ -1116,6 +1185,7 @@ class _MyOverlayWidgetState extends State<MyOverlayWidget> {
           setState(() {
             _customerName = decoded['customer_name'] ?? decoded['customerName'] ?? "عميل";
             _amount = (decoded['amount'] ?? decoded['price'] ?? "0").toString();
+            _rideId = (decoded['ride_id'] ?? decoded['rideId'] ?? decoded['id'] ?? '').toString();
           });
         } catch (_) {}
       }
@@ -1232,8 +1302,17 @@ class _MyOverlayWidgetState extends State<MyOverlayWidget> {
                           ),
                           elevation: 2,
                         ),
-                        onPressed: () {
+                        onPressed: () async {
                           FlutterOverlayWindow.shareData("accept");
+                          if (_rideId != null && _rideId!.isNotEmpty) {
+                            try {
+                              final uri = Uri.parse("https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$_rideId");
+                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            } catch (_) {}
+                          }
+                          try {
+                            await FlutterOverlayWindow.closeOverlay();
+                          } catch (_) {}
                         },
                         child: const Text(
                           "قبول",
@@ -1257,8 +1336,11 @@ class _MyOverlayWidgetState extends State<MyOverlayWidget> {
                           ),
                           elevation: 2,
                         ),
-                        onPressed: () {
+                        onPressed: () async {
                           FlutterOverlayWindow.shareData("reject");
+                          try {
+                            await FlutterOverlayWindow.closeOverlay();
+                          } catch (_) {}
                         },
                         child: const Text(
                           "رفض",
