@@ -60,19 +60,3 @@ jobs:
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
-
-      # 🔴 Upload APK
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tirhal-Driver-App-APK
-          path: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 7
-
-      # 🟢 Upload AAB (جديد)
-      - name: Upload AAB Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tirhal-Driver-App-AAB
-          path: pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab
-          retention-days: 7
