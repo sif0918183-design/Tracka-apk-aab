@@ -159,7 +159,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
+    // ✅ تم إيقاف تشغيل الصوت والاهتزاز اليدوي في الخلفية لتجنب تكرار الصوت وعدم القدرة على إيقافه عند فتح التطبيق.
+    // نظام التشغيل يقوم بتشغيل الصوت والاهتزاز تلقائياً وبشكل متكرر عبر قناة الطوارئ أدناه ويتم إيقافه فوراً عند الضغط على الإشعار أو فتح التطبيق.
+    // _playAlertSoundInBackground();
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -337,9 +339,7 @@ class _DriverHomeState extends State<DriverHome> {
 
   @override
   void dispose() {
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
@@ -351,9 +351,7 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
@@ -449,16 +447,12 @@ class _DriverHomeState extends State<DriverHome> {
       await _updateTokenInDrivers(newToken);
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      _stopAlertSound();
-      _overlayEntry?.remove();
-      _overlayEntry = null;
+      _stopAlerts();
       _handleNotificationClick(message.data);
     });
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         _handleNotificationClick(message.data); 
       }
     });
@@ -473,9 +467,7 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
@@ -653,7 +645,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     Future.delayed(const Duration(seconds: 35), () {
-      _stopAlertSound();
+      _stopAlerts();
     });
   }
 
