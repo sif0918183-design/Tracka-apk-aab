@@ -286,6 +286,9 @@ class _DriverHomeState extends State<DriverHome> {
   
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
+  
+  // ✅ متغير لتتبع ما إذا كانت صفحة القبول مفتوحة
+  bool _isAcceptPageOpen = false;
 
   @override
   void initState() {
@@ -675,6 +678,9 @@ class _DriverHomeState extends State<DriverHome> {
       notifications.cancelAll();
     } catch (_) {}
     
+    // ✅ إعادة تعيين حالة صفحة القبول
+    _isAcceptPageOpen = false;
+    
     print('✅ تم إيقاف جميع التنبيهات بنجاح');
   }
 
@@ -737,6 +743,7 @@ class _DriverHomeState extends State<DriverHome> {
 
   // ✅ نافذة منبثقة ثابتة باستخدام Overlay
   void _showRideRequestModal(Map<String, dynamic> data) {
+    // ✅ إزالة أي نافذة سابقة
     _overlayEntry?.remove();
     
     final context = navigatorKey.currentContext;
@@ -836,6 +843,7 @@ class _DriverHomeState extends State<DriverHome> {
     // فتح صفحة القبول
     final rideId = _extractRideId(data);
     if (rideId != null && web != null) {
+      _isAcceptPageOpen = true;
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
     }
@@ -907,9 +915,28 @@ class _DriverHomeState extends State<DriverHome> {
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
-                  print('🛑 تم استلام طلب إيقاف التنبيهات من PWA');
+                  print('🛑 تم استلام طلب إيقاف التنبيهات من PWA (stopAlertsFromPWA)');
                   _stopAlerts(); 
                   return 'OK';
+                }
+              );
+              
+              // ✅ Handler لإيقاف التنبيهات (للتوافق مع الكود القديم)
+              controller.addJavaScriptHandler(
+                handlerName: 'stopAlerts', 
+                callback: (args) { 
+                  print('🛑 تم استلام طلب إيقاف التنبيهات (stopAlerts)');
+                  _stopAlerts(); 
+                  return 'OK';
+                }
+              );
+              
+              // ✅ Handler للتحقق من حالة التنبيهات
+              controller.addJavaScriptHandler(
+                handlerName: 'isAlertPlaying', 
+                callback: (args) { 
+                  print('📊 التحقق من حالة التنبيهات: $_globalIsAlertPlaying');
+                  return _globalIsAlertPlaying;
                 }
               );
               
@@ -920,15 +947,6 @@ class _DriverHomeState extends State<DriverHome> {
                   if (args.isNotEmpty && args[0] is Map) {
                     _saveDriver(args[0]['driverId'].toString()); 
                   }
-                  return 'OK';
-                }
-              );
-              
-              // ✅ Handler لإيقاف التنبيهات (للتوافق مع الكود القديم)
-              controller.addJavaScriptHandler(
-                handlerName: 'stopAlerts', 
-                callback: (args) { 
-                  _stopAlerts(); 
                   return 'OK';
                 }
               );
@@ -946,9 +964,21 @@ class _DriverHomeState extends State<DriverHome> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
-                // ✅ إذا تم تحميل صفحة قبول الرحلة، أوقف جميع التنبيهات
+                // ✅ إذا تم تحميل صفحة قبول الرحلة، أوقف جميع التنبيهات فوراً
                 if (currentUrl.contains('accept-ride.html')) {
+                  print('📄 تم تحميل accept-ride.html، إيقاف التنبيهات...');
+                  _isAcceptPageOpen = true;
                   _stopAlerts();
+                  
+                  // ✅ محاولة إضافية لإيقاف التنبيهات بعد 500ms
+                  Future.delayed(const Duration(milliseconds: 500), () {
+                    if (_globalIsAlertPlaying) {
+                      print('🔄 محاولة إضافية لإيقاف التنبيهات...');
+                      _stopAlerts();
+                    }
+                  });
+                } else {
+                  _isAcceptPageOpen = false;
                 }
               }
               if (fcmToken != null) _sendTokenToPWA(fcmToken!);
