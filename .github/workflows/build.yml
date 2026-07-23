@@ -53,7 +53,7 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
-      # 🟢 Build AAB
+      # 🟢 Build AAB (جديد)
       - name: Build AAB
         run: |
           flutter build appbundle --release \
@@ -61,66 +61,18 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
-      # ✅ حذف الـ Artifacts القديمة قبل رفع الجديدة
-      - name: Delete old artifacts
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          script: |
-            const { data: artifacts } = await github.rest.actions.listArtifactsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            
-            const oldArtifacts = artifacts.artifacts.filter(a => 
-              a.created_at < new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-            );
-            
-            for (const artifact of oldArtifacts) {
-              console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
-              await github.rest.actions.deleteArtifact({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                artifact_id: artifact.id,
-              });
-            }
-            
-            console.log(`Deleted ${oldArtifacts.length} old artifacts`);
-
-      # ✅ رفع APK فقط في حالة النجاح
+      # 🔴 Upload APK
       - name: Upload APK Artifact
-        if: success()
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
-          name: Tirhal-Driver-App-APK-${{ github.run_number }}
+          name: Tirhal-Driver-App-APK
           path: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 3  # 🔴 تقليل مدة الاحتفاظ إلى 3 أيام
+          retention-days: 7
 
-      # ✅ رفع AAB فقط في حالة النجاح
+      # 🟢 Upload AAB (جديد)
       - name: Upload AAB Artifact
-        if: success()
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
-          name: Tirhal-Driver-App-AAB-${{ github.run_number }}
+          name: Tirhal-Driver-App-AAB
           path: pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab
-          retention-days: 3  # 🔴 تقليل مدة الاحتفاظ إلى 3 أيام
-
-      # ✅ أو: رفع إلى Firebase App Distribution (بديل أفضل)
-      # - name: Upload to Firebase App Distribution
-      #   if: success() && github.ref == 'refs/heads/main'
-      #   uses: wzieba/Firebase-Distribution-Github-Action@v1
-      #   with:
-      #     appId: ${{ secrets.FIREBASE_APP_ID }}
-      #     token: ${{ secrets.FIREBASE_TOKEN }}
-      #     groups: testers
-      #     file: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-      #     release_notes: "Build #${{ github.run_number }} - ${{ github.sha }}"
-
-      # ✅ تنظيف مساحة البناء
-      - name: Clean build artifacts
-        if: always()
-        run: |
-          rm -rf pwa_to_flutter_app/build
-          docker system prune -f || true
+          retention-days: 7
