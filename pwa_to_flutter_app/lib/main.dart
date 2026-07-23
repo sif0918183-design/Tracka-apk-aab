@@ -18,7 +18,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'webview_popup.dart';
 
 // ✅ Global Navigator Key for Overlay
@@ -31,7 +30,7 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_default';
+const String _emergencyChannelId = 'emergency_channel_v11';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز (غير static)
@@ -128,50 +127,6 @@ void _stopAlertSoundInBackground() {
   } catch (_) {}
 }
 
-RealtimeChannel? _bgRideStatusChannel;
-
-void _listenForRideStatusChangesBackground(String rideId) {
-  try {
-    Supabase.initialize(
-      url: const String.fromEnvironment('SUPABASE_URL'),
-      anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-    );
-  } catch (_) {}
-
-  final supabase = Supabase.instance.client;
-  _bgRideStatusChannel?.unsubscribe();
-  _bgRideStatusChannel = supabase.channel('bg_ride_status_$rideId')
-    ..onPostgresChanges(
-      event: PostgresChangeEvent.update,
-      schema: 'public',
-      table: 'rides',
-      filter: PostgresChangeFilter(
-        type: PostgresChangeFilterType.eq,
-        column: 'id',
-        value: rideId,
-      ),
-      callback: (payload) {
-        final data = payload.newRecord;
-        if (data != null) {
-          final String status = data['status']?.toString() ?? '';
-          if (status == 'accepted' ||
-              status == 'cancelled_by_customer' ||
-              status == 'no_drivers_found' ||
-              status == 'completed') {
-
-            _stopAlertSoundInBackground();
-            try {
-              FlutterOverlayWindow.closeOverlay();
-            } catch (_) {}
-
-            _bgRideStatusChannel?.unsubscribe();
-            _bgRideStatusChannel = null;
-          }
-        }
-      },
-    )..subscribe();
-}
-
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -188,30 +143,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     
     // ✅ تشغيل الصوت والاهتزاز المتكرر عند استلام إشعار رحلة فورية في الخلفية
     _playAlertSoundInBackground();
-
-    // ✅ عرض النافذة العائمة في الخلفية
-    try {
-      if (await FlutterOverlayWindow.isPermissionGranted()) {
-        if (!await FlutterOverlayWindow.isActive()) {
-          await FlutterOverlayWindow.showOverlay(
-            height: 240,
-            width: 340,
-            alignment: OverlayAlignment.center,
-            enableDrag: true,
-            overlayTitle: "طلب رحلة جديد",
-            overlayContent: "لديك طلب رحلة جديد من العميل",
-          );
-        }
-        Future.delayed(const Duration(milliseconds: 500), () {
-          FlutterOverlayWindow.shareData(jsonEncode(data));
-        });
-      }
-    } catch (_) {}
-
-    // ✅ الاستماع لتغيرات حالة الرحلة في الخلفية
-    if (rideId != null) {
-      _listenForRideStatusChangesBackground(rideId);
-    }
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -240,7 +171,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else if (isRideRequest) {
-    // ✅ إشعارات RIDE_REQUEST (طوارئ) تستخدم القناة الخاصة
+    // ✅ إشعارات RIDE_REQUEST (طوارئ) تستخدم القناة الخاصة مع FLAG_INSISTENT
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
@@ -253,11 +184,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
-          category: fln.AndroidNotificationCategory.alarm,
+          fullScreenIntent: true,
+          category: fln.AndroidNotificationCategory.call,
           playSound: true,
           enableVibration: true,
+          additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-          sound: null,
+          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
           timeoutAfter: null,
@@ -307,7 +240,6 @@ Future<void> main() async {
     Permission.locationAlways,
     Permission.camera,
     Permission.ignoreBatteryOptimizations,
-    Permission.systemAlertWindow,
   ].request();
   
   _initForegroundTask();
@@ -364,9 +296,6 @@ class _DriverHomeState extends State<DriverHome> {
   
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
-  Map<String, dynamic>? _activeRideData;
-  RealtimeChannel? _rideStatusChannel;
-  StreamSubscription? _overlayEventSubscription;
 
   @override
   void initState() {
@@ -375,21 +304,6 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
-
-    // ✅ Listen for events from the floating overlay window
-    _overlayEventSubscription = FlutterOverlayWindow.overlayListener.listen((event) {
-      if (event == "request_data") {
-        if (_activeRideData != null) {
-          FlutterOverlayWindow.shareData(jsonEncode(_activeRideData));
-        }
-      } else if (event == "accept") {
-        if (_activeRideData != null) {
-          _acceptRide(_activeRideData!);
-        }
-      } else if (event == "reject") {
-        _rejectRide();
-      }
-    });
   }
 
   @override
@@ -397,14 +311,9 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlertSound();
     _overlayEntry?.remove();
     _overlayEntry = null;
-    _overlayEventSubscription?.cancel();
-    _rideStatusChannel?.unsubscribe();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
-    try {
-      FlutterOverlayWindow.closeOverlay();
-    } catch (_) {}
     super.dispose();
   }
 
@@ -439,7 +348,7 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
+      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية) مع FLAG_INSISTENT
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -447,7 +356,8 @@ class _DriverHomeState extends State<DriverHome> {
         importance: fln.Importance.max,
         playSound: true,
         enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.alarm,
+        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+        sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
@@ -577,7 +487,7 @@ class _DriverHomeState extends State<DriverHome> {
     // ✅ إشعارات السفر (DRIVER_OFFER, DRIVER_SELECTED, NEW_CHAT_MESSAGE)
     // تظهر كإشعار عادي بدون صوت/اهتزاز متصل
     if (isTravelNotif) {
-      await _showTravelNotification(data, title: message.notification?.title, body: message.notification?.body);
+      await _showTravelNotification(data, message.notification);
       return;
     }
 
@@ -592,19 +502,18 @@ class _DriverHomeState extends State<DriverHome> {
       
       // ✅ عرض النافذة المنبثقة الثابتة (باستخدام Overlay)
       _showRideRequestModal(data);
-
-      // ✅ عرض النافذة العائمة (Floating Window)
-      _showFloatingWindow(data);
+      
+      // ✅ عرض الإشعار المحلي (يظهر في الخلفية مع FLAG_INSISTENT)
+      await _showLocalNotification(data);
       
       // ✅ إرسال إلى PWA
       await _sendToPWA(data);
       
-      // ✅ ✅ ✅ لا نعرض إشعاراً محلياً (لتجنب التكرار مع إشعار Firebase)
       return;
     }
 
     // ✅ أي إشعار آخر (احتياطي) - يظهر كإشعار عادي
-    await _showTravelNotification(data, title: message.notification?.title, body: message.notification?.body);
+    await _showTravelNotification(data, message.notification);
   }
 
   void _sendTokenToPWA(String token) async {
@@ -679,7 +588,6 @@ class _DriverHomeState extends State<DriverHome> {
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
-          _showFloatingWindow(rideData);
           await _sendToPWA(rideData);
         },
       )..subscribe();
@@ -747,6 +655,7 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ دالة إيقاف الصوت والاهتزاز والإشعارات بشكل كامل
   void _stopAlertSound() {
     _globalIsAlertPlaying = false;
     _globalAlertTimer?.cancel();
@@ -754,9 +663,23 @@ class _DriverHomeState extends State<DriverHome> {
     _globalAudioPlayer?.stop();
     _globalAudioPlayer?.dispose();
     _globalAudioPlayer = null;
+    
+    // ✅ إلغاء الاهتزاز
     try {
       Vibration.cancel();
     } catch (_) {}
+    
+    // ✅ إلغاء جميع الإشعارات المحلية
+    try {
+      notifications.cancelAll();
+    } catch (_) {}
+  }
+
+  // ✅ دالة شاملة لإيقاف جميع التنبيهات (للإستخدام الخارجي)
+  void _stopAlerts() {
+    _stopAlertSound();
+    _overlayEntry?.remove();
+    _overlayEntry = null;
   }
 
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
@@ -776,11 +699,13 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
-            category: fln.AndroidNotificationCategory.alarm,
+            fullScreenIntent: true,
+            category: fln.AndroidNotificationCategory.call,
             playSound: true,
             enableVibration: true,
+            additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT = 4
             vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-            sound: null,
+            sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
             timeoutAfter: null,
@@ -792,12 +717,12 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   // ✅ إشعارات السفر العادية (بدون صوت/اهتزاز متصل)
-  Future<void> _showTravelNotification(Map<String, dynamic> data, {String? title, String? body}) async {
+  Future<void> _showTravelNotification(Map<String, dynamic> data, RemoteNotification? notif) async {
     try {
-      final String finalTitle = title ?? 'تراكا';
-      final String finalBody = body ?? 'لديك إشعار جديد';
+      final String title = notif?.title ?? 'تراكا';
+      final String body = notif?.body ?? 'لديك إشعار جديد';
       await notifications.show(
-        DateTime.now().millisecond, finalTitle, finalBody,
+        DateTime.now().millisecond, title, body,
         const fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
             'travel_notifications',
@@ -811,18 +736,6 @@ class _DriverHomeState extends State<DriverHome> {
         payload: jsonEncode(data),
       );
     } catch (_) {}
-  }
-
-  // ✅ Helper method to extract ride id
-  String? _extractRideId(Map<String, dynamic> data) {
-    dynamic rideId = data['ride_id'] ?? data['rideId'];
-    if (rideId == null && data['payload'] != null) {
-      try {
-        final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
-        rideId = payloadData['ride_id'] ?? payloadData['rideId'];
-      } catch (_) {}
-    }
-    return rideId?.toString();
   }
 
   // ✅ ✅ ✅ نافذة منبثقة ثابتة باستخدام Overlay ✅ ✅ ✅
@@ -885,6 +798,8 @@ class _DriverHomeState extends State<DriverHome> {
                         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                       ),
                       onPressed: () {
+                        // ✅ إيقاف جميع التنبيهات وإزالة النافذة
+                        _stopAlerts();
                         _acceptRide(data);
                       },
                       child: const Text(
@@ -898,7 +813,8 @@ class _DriverHomeState extends State<DriverHome> {
                         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                       ),
                       onPressed: () {
-                        _rejectRide();
+                        // ✅ إيقاف جميع التنبيهات وإزالة النافذة
+                        _stopAlerts();
                       },
                       child: const Text(
                         'تجاهل',
@@ -918,133 +834,11 @@ class _DriverHomeState extends State<DriverHome> {
     Overlay.of(context).insert(_overlayEntry!);
   }
 
-  Future<void> _showFloatingWindow(Map<String, dynamic> data) async {
-    _activeRideData = data;
-    final String? rideId = _extractRideId(data);
-
-    // Request permission if not granted
-    if (!await FlutterOverlayWindow.isPermissionGranted()) {
-      await FlutterOverlayWindow.requestPermission();
-    }
-
-    // If permission is granted, show overlay
-    if (await FlutterOverlayWindow.isPermissionGranted()) {
-      if (!await FlutterOverlayWindow.isActive()) {
-        await FlutterOverlayWindow.showOverlay(
-          height: 240,
-          width: 340,
-          alignment: OverlayAlignment.center,
-          enableDrag: true,
-          overlayTitle: "طلب رحلة جديد",
-          overlayContent: "لديك طلب رحلة جديد من العميل",
-        );
-      }
-
-      // Delay and share data with overlay
-      Future.delayed(const Duration(milliseconds: 500), () {
-        FlutterOverlayWindow.shareData(jsonEncode(data));
-      });
-
-      // Listen for ride status changes in Supabase
-      if (rideId != null) {
-        _listenForRideStatusChanges(rideId);
-      }
-    }
-  }
-
-  void _listenForRideStatusChanges(String rideId) {
-    _rideStatusChannel?.unsubscribe();
-    _rideStatusChannel = supabase.channel('ride_status_$rideId')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.update,
-        schema: 'public',
-        table: 'rides',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'id',
-          value: rideId,
-        ),
-        callback: (payload) {
-          final data = payload.newRecord;
-          if (data != null) {
-            final String status = data['status']?.toString() ?? '';
-            if (status == 'accepted' ||
-                status == 'cancelled_by_customer' ||
-                status == 'no_drivers_found' ||
-                status == 'completed') {
-
-              // إيقاف الصوت والاهتزاز تلقائياً
-              _stopAlerts();
-
-              // إلغاء الإشعار المحلي
-              try {
-                notifications.cancel(rideId.hashCode);
-              } catch (_) {}
-
-              // عرض إشعار عادي يوضح الحالة الجديدة
-              String message = 'تغيرت حالة الرحلة';
-              if (status == 'accepted') {
-                message = 'تم قبول الرحلة بنجاح';
-              } else if (status == 'cancelled_by_customer') {
-                message = 'تم إلغاء الرحلة من قبل العميل';
-              } else if (status == 'no_drivers_found') {
-                message = 'لم يتم العثور على سائقين للرحلة';
-              } else if (status == 'completed') {
-                message = 'تم إكمال الرحلة بنجاح';
-              }
-
-              _showTravelNotification(
-                {'type': 'RIDE_STATUS_UPDATE', 'ride_id': rideId},
-                title: 'تحديث الرحلة',
-                body: message,
-              );
-
-              // إلغاء الاستماع
-              _rideStatusChannel?.unsubscribe();
-              _rideStatusChannel = null;
-            }
-          }
-        },
-      )..subscribe();
-  }
-
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    _stopAlerts();
-    final String? rideId = _extractRideId(data);
-
-    if (rideId != null) {
-      try {
-        // تحديث جدول rides
-        await supabase.from('rides').update({'status': 'accepted'}).eq('id', rideId);
-      } catch (_) {}
-      try {
-        // تحديث جدول ride_requests
-        await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', rideId).eq('driver_id', driverId!);
-      } catch (_) {}
-    }
-
-    // فتح صفحة القبول في الـ WebView
-    if (rideId != null) {
-      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
-      if (web != null) {
-        await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
-      }
-    }
-  }
-
-  void _rejectRide() {
-    _stopAlerts();
-  }
-
-  void _stopAlerts() {
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-    Vibration.cancel();
-    notifications.cancelAll();
-    try {
-      FlutterOverlayWindow.closeOverlay();
+    try { 
+      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
     } catch (_) {}
+    if (web != null) await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
   }
 
   Future<void> _sendToPWA(Map<String, dynamic> data) async {
@@ -1119,7 +913,8 @@ class _DriverHomeState extends State<DriverHome> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
-                if (!currentUrl.contains('accept-ride.html')) {
+                // ✅ إذا تم تحميل صفحة قبول الرحلة، أوقف جميع التنبيهات
+                if (currentUrl.contains('accept-ride.html')) {
                   _stopAlerts();
                 }
               }
@@ -1146,219 +941,5 @@ class _DriverHomeState extends State<DriverHome> {
       final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
       if (res != null && res != 'null' && res != driverId) _saveDriver(res);
     });
-  }
-}
-
-// ✅ Entry point for Overlay (Floating Window)
-@pragma("vm:entry-point")
-void overlayMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: MyOverlayWidget(),
-    ),
-  );
-}
-
-class MyOverlayWidget extends StatefulWidget {
-  const MyOverlayWidget({super.key});
-
-  @override
-  State<MyOverlayWidget> createState() => _MyOverlayWidgetState();
-}
-
-class _MyOverlayWidgetState extends State<MyOverlayWidget> {
-  String _customerName = "جاري التحميل...";
-  String _amount = "0";
-  String? _rideId;
-  StreamSubscription? _overlaySubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    // Listen for data from the main application
-    _overlaySubscription = FlutterOverlayWindow.overlayListener.listen((event) {
-      if (event != null && event is String && event != "request_data" && event != "accept" && event != "reject") {
-        try {
-          final decoded = jsonDecode(event);
-          setState(() {
-            _customerName = decoded['customer_name'] ?? decoded['customerName'] ?? "عميل";
-            _amount = (decoded['amount'] ?? decoded['price'] ?? "0").toString();
-            _rideId = (decoded['ride_id'] ?? decoded['rideId'] ?? decoded['id'] ?? '').toString();
-          });
-        } catch (_) {}
-      }
-    });
-
-    // Request data from main application after startup
-    Future.delayed(const Duration(milliseconds: 300), () {
-      FlutterOverlayWindow.shareData("request_data");
-    });
-  }
-
-  @override
-  void dispose() {
-    _overlaySubscription?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
-          child: Container(
-            width: double.infinity,
-            height: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.blueAccent.withOpacity(0.5), width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Drag handle bar indicator
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                // Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.stars, color: Colors.amber, size: 24),
-                    SizedBox(width: 8),
-                    Text(
-                      "طلب رحلة فوري 🚨",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 16),
-                // Ride Details
-                Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _customerName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black54,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "$_amount SDG",
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // Accept / Reject Buttons
-                Row(
-                  children: [
-                    // Accept Button
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: () async {
-                          FlutterOverlayWindow.shareData("accept");
-                          if (_rideId != null && _rideId!.isNotEmpty) {
-                            try {
-                              final uri = Uri.parse("https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$_rideId");
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
-                            } catch (_) {}
-                          }
-                          try {
-                            await FlutterOverlayWindow.closeOverlay();
-                          } catch (_) {}
-                        },
-                        child: const Text(
-                          "قبول",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Reject Button
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: () async {
-                          FlutterOverlayWindow.shareData("reject");
-                          try {
-                            await FlutterOverlayWindow.closeOverlay();
-                          } catch (_) {}
-                        },
-                        child: const Text(
-                          "رفض",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
