@@ -64,6 +64,7 @@ jobs:
       # 🔴 Upload APK
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: Tirhal-Driver-App-APK
           path: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
@@ -72,6 +73,7 @@ jobs:
       # 🟢 Upload AAB (جديد)
       - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: Tirhal-Driver-App-AAB
           path: pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab
