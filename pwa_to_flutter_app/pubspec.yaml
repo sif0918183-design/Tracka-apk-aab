@@ -23,6 +23,7 @@ dependencies:
   url_launcher: ^6.1.14
   flutter_foreground_task: ^8.17.0
   package_info_plus: ^8.0.0
+  # ❌ إزالة flutter_overlay_window
 
 dev_dependencies:
   flutter_test:
