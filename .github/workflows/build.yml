@@ -45,15 +45,15 @@ jobs:
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
 
-      # 🔴 Build APK
       - name: Build APK
         run: |
+          flutter clean
+          flutter pub get
           flutter build apk --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
-      # 🟢 Build AAB (جديد)
       - name: Build AAB
         run: |
           flutter build appbundle --release \
@@ -61,18 +61,37 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: pwa_to_flutter_app
 
-      # 🔴 Upload APK
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tirhal-Driver-App-APK
-          path: pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 7
+      # ✅ فقط رفع الملفات إلى Supabase - بدون أي شيء آخر
+      - name: Upload APK to Supabase
+        if: success()
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          BUILD_NUM="${{ github.run_number }}"
+          APK_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.apk"
+          
+          echo "📤 رفع APK إلى Supabase..."
+          curl -X POST \
+            "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$APK_NAME" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk"
+          
+          echo "✅ تم رفع APK"
+          echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$APK_NAME"
 
-      # 🟢 Upload AAB (جديد)
-      - name: Upload AAB Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tirhal-Driver-App-AAB
-          path: pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab
-          retention-days: 7
+      - name: Upload AAB to Supabase
+        if: success()
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          BUILD_NUM="${{ github.run_number }}"
+          AAB_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.aab"
+          
+          echo "📤 رفع AAB إلى Supabase..."
+          curl -X POST \
+            "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$AAB_NAME" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab"
+          
+          echo "✅ تم رفع AAB"
+          echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$AAB_NAME"
