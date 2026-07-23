@@ -642,41 +642,65 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  // ✅ دالة إيقاف الصوت
+  // ✅ دالة إيقاف الصوت (محسنة بشكل كبير)
   void _stopAlertSound() {
-    _globalIsAlertPlaying = false;
-    _globalAlertTimer?.cancel();
-    _globalAlertTimer = null;
+    print('🔇 محاولة إيقاف الصوت والاهتزاز...');
     
+    // ✅ إيقاف المتغير العام
+    _globalIsAlertPlaying = false;
+    
+    // ✅ إلغاء المؤقت
+    if (_globalAlertTimer != null) {
+      _globalAlertTimer!.cancel();
+      _globalAlertTimer = null;
+      print('⏹️ تم إلغاء المؤقت');
+    }
+    
+    // ✅ إيقاف مشغل الصوت بشكل كامل
     try {
-      _globalAudioPlayer?.stop();
-      _globalAudioPlayer?.dispose();
-      _globalAudioPlayer = null;
-    } catch (_) {}
+      if (_globalAudioPlayer != null) {
+        print('🎵 إيقاف مشغل الصوت...');
+        _globalAudioPlayer!.stop();
+        _globalAudioPlayer!.dispose();
+        _globalAudioPlayer = null;
+        print('✅ تم إيقاف مشغل الصوت');
+      }
+    } catch (e) {
+      print('⚠️ خطأ في إيقاف مشغل الصوت: $e');
+    }
     
     // ✅ إلغاء الاهتزاز
     try {
       Vibration.cancel();
-    } catch (_) {}
+      print('📳 تم إلغاء الاهتزاز');
+    } catch (e) {
+      print('⚠️ خطأ في إلغاء الاهتزاز: $e');
+    }
     
-    print('🔇 تم إيقاف الصوت والاهتزاز');
+    print('✅ تم إيقاف الصوت والاهتزاز بنجاح');
   }
 
   // ✅ دالة شاملة لإيقاف جميع التنبيهات
   void _stopAlerts() {
     print('🛑 إيقاف جميع التنبيهات...');
     
-    // ✅ إيقاف الصوت
+    // ✅ إيقاف الصوت (محسنة)
     _stopAlertSound();
     
     // ✅ إزالة الـ Overlay
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    if (_overlayEntry != null) {
+      _overlayEntry!.remove();
+      _overlayEntry = null;
+      print('❌ تم إزالة الـ Overlay');
+    }
     
     // ✅ إلغاء جميع الإشعارات المحلية
     try {
       notifications.cancelAll();
-    } catch (_) {}
+      print('📬 تم إلغاء جميع الإشعارات');
+    } catch (e) {
+      print('⚠️ خطأ في إلغاء الإشعارات: $e');
+    }
     
     // ✅ إعادة تعيين حالة صفحة القبول
     _isAcceptPageOpen = false;
@@ -833,7 +857,8 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    // ✅ إيقاف جميع التنبيهات فوراً
+    // ✅ إيقاف جميع التنبيهات فوراً (محسنة)
+    print('📞 قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
     try { 
@@ -850,7 +875,8 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _rejectRide() {
-    // ✅ إيقاف جميع التنبيهات فوراً
+    // ✅ إيقاف جميع التنبيهات فوراً (محسنة)
+    print('❌ رفض الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
   }
 
@@ -970,13 +996,15 @@ class _DriverHomeState extends State<DriverHome> {
                   _isAcceptPageOpen = true;
                   _stopAlerts();
                   
-                  // ✅ محاولة إضافية لإيقاف التنبيهات بعد 500ms
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    if (_globalIsAlertPlaying) {
-                      print('🔄 محاولة إضافية لإيقاف التنبيهات...');
-                      _stopAlerts();
-                    }
-                  });
+                  // ✅ محاولات إضافية لإيقاف التنبيهات
+                  for (int i = 0; i < 5; i++) {
+                    Future.delayed(Duration(milliseconds: 500 + (i * 300)), () {
+                      if (_globalIsAlertPlaying) {
+                        print('🔄 محاولة إضافية ${i+1} لإيقاف التنبيهات...');
+                        _stopAlerts();
+                      }
+                    });
+                  }
                 } else {
                   _isAcceptPageOpen = false;
                 }
