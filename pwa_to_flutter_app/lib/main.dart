@@ -32,10 +32,13 @@ const String _rideRequestType = 'RIDE_REQUEST';
 const String _emergencyChannelId = 'emergency_channel_v11';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
-// ✅ متغيرات عالمية للصوت والاهتزاز
-AudioPlayer? _globalAudioPlayer;
-Timer? _globalAlertTimer;
-bool _globalIsAlertPlaying = false;
+// ✅ متغيرات عالمية للصوت والاهتزاز (جعلها static للوصول إليها من أي مكان)
+static AudioPlayer? _globalAudioPlayer;
+static Timer? _globalAlertTimer;
+static bool _globalIsAlertPlaying = false;
+
+// ✅ MethodChannel للتواصل مع Native (لإيقاف الصوت من أي مكان)
+static const MethodChannel _methodChannel = MethodChannel('com.tracka.driver/alerts');
 
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
@@ -63,7 +66,41 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ تشغيل الصوت والاهتزاز في الخلفية
+// ✅ دالة عامة لإيقاف الصوت (يمكن استدعاؤها من أي مكان)
+void stopGlobalAlertSound() {
+  print('🔇 [GLOBAL] محاولة إيقاف الصوت والاهتزاز...');
+  
+  _globalIsAlertPlaying = false;
+  
+  if (_globalAlertTimer != null) {
+    _globalAlertTimer!.cancel();
+    _globalAlertTimer = null;
+    print('⏹️ [GLOBAL] تم إلغاء المؤقت');
+  }
+  
+  try {
+    if (_globalAudioPlayer != null) {
+      print('🎵 [GLOBAL] إيقاف مشغل الصوت...');
+      _globalAudioPlayer!.stop();
+      _globalAudioPlayer!.dispose();
+      _globalAudioPlayer = null;
+      print('✅ [GLOBAL] تم إيقاف مشغل الصوت');
+    }
+  } catch (e) {
+    print('⚠️ [GLOBAL] خطأ في إيقاف مشغل الصوت: $e');
+  }
+  
+  try {
+    Vibration.cancel();
+    print('📳 [GLOBAL] تم إلغاء الاهتزاز');
+  } catch (e) {
+    print('⚠️ [GLOBAL] خطأ في إلغاء الاهتزاز: $e');
+  }
+  
+  print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز بنجاح');
+}
+
+// ✅ دالة تشغيل الصوت (معدلة)
 void _playAlertSoundInBackground() {
   _globalIsAlertPlaying = true;
   _vibratePhoneBackground();
@@ -96,7 +133,7 @@ void _playAlertSoundInBackground() {
   }
   
   Future.delayed(const Duration(seconds: 35), () {
-    _stopAlertSoundInBackground();
+    stopGlobalAlertSound();
   });
 }
 
@@ -107,18 +144,6 @@ void _vibratePhoneBackground() {
         Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
       }
     });
-  } catch (_) {}
-}
-
-void _stopAlertSoundInBackground() {
-  _globalIsAlertPlaying = false;
-  _globalAlertTimer?.cancel();
-  _globalAlertTimer = null;
-  _globalAudioPlayer?.stop();
-  _globalAudioPlayer?.dispose();
-  _globalAudioPlayer = null;
-  try {
-    Vibration.cancel();
   } catch (_) {}
 }
 
@@ -293,6 +318,17 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
+    
+    // ✅ إعداد MethodChannel للاستماع لأوامر الإيقاف من Native
+    _methodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'stopAlerts') {
+        print('📱 [MethodChannel] استلام أمر إيقاف التنبيهات من Native');
+        _stopAlerts();
+        return true;
+      }
+      return false;
+    });
+    
     _initNotifications();
     _initFirebaseMessaging();
     _restoreDriver();
@@ -642,50 +678,17 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  // ✅ دالة إيقاف الصوت (محسنة بشكل كبير)
+  // ✅ دالة إيقاف الصوت (تستخدم الدالة العامة)
   void _stopAlertSound() {
-    print('🔇 محاولة إيقاف الصوت والاهتزاز...');
-    
-    // ✅ إيقاف المتغير العام
-    _globalIsAlertPlaying = false;
-    
-    // ✅ إلغاء المؤقت
-    if (_globalAlertTimer != null) {
-      _globalAlertTimer!.cancel();
-      _globalAlertTimer = null;
-      print('⏹️ تم إلغاء المؤقت');
-    }
-    
-    // ✅ إيقاف مشغل الصوت بشكل كامل
-    try {
-      if (_globalAudioPlayer != null) {
-        print('🎵 إيقاف مشغل الصوت...');
-        _globalAudioPlayer!.stop();
-        _globalAudioPlayer!.dispose();
-        _globalAudioPlayer = null;
-        print('✅ تم إيقاف مشغل الصوت');
-      }
-    } catch (e) {
-      print('⚠️ خطأ في إيقاف مشغل الصوت: $e');
-    }
-    
-    // ✅ إلغاء الاهتزاز
-    try {
-      Vibration.cancel();
-      print('📳 تم إلغاء الاهتزاز');
-    } catch (e) {
-      print('⚠️ خطأ في إلغاء الاهتزاز: $e');
-    }
-    
-    print('✅ تم إيقاف الصوت والاهتزاز بنجاح');
+    stopGlobalAlertSound();
   }
 
   // ✅ دالة شاملة لإيقاف جميع التنبيهات
   void _stopAlerts() {
     print('🛑 إيقاف جميع التنبيهات...');
     
-    // ✅ إيقاف الصوت (محسنة)
-    _stopAlertSound();
+    // ✅ إيقاف الصوت باستخدام الدالة العامة
+    stopGlobalAlertSound();
     
     // ✅ إزالة الـ Overlay
     if (_overlayEntry != null) {
@@ -857,7 +860,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    // ✅ إيقاف جميع التنبيهات فوراً (محسنة)
+    // ✅ إيقاف جميع التنبيهات فوراً
     print('📞 قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
@@ -875,7 +878,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _rejectRide() {
-    // ✅ إيقاف جميع التنبيهات فوراً (محسنة)
+    // ✅ إيقاف جميع التنبيهات فوراً
     print('❌ رفض الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
   }
@@ -943,6 +946,10 @@ class _DriverHomeState extends State<DriverHome> {
                 callback: (args) { 
                   print('🛑 تم استلام طلب إيقاف التنبيهات من PWA (stopAlertsFromPWA)');
                   _stopAlerts(); 
+                  // ✅ محاولة إضافية عبر MethodChannel
+                  try {
+                    _methodChannel.invokeMethod('stopAlerts');
+                  } catch (_) {}
                   return 'OK';
                 }
               );
@@ -952,7 +959,10 @@ class _DriverHomeState extends State<DriverHome> {
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
                   print('🛑 تم استلام طلب إيقاف التنبيهات (stopAlerts)');
-                  _stopAlerts(); 
+                  _stopAlerts();
+                  try {
+                    _methodChannel.invokeMethod('stopAlerts');
+                  } catch (_) {}
                   return 'OK';
                 }
               );
@@ -996,13 +1006,14 @@ class _DriverHomeState extends State<DriverHome> {
                   _isAcceptPageOpen = true;
                   _stopAlerts();
                   
-                  // ✅ محاولات إضافية لإيقاف التنبيهات
-                  for (int i = 0; i < 5; i++) {
-                    Future.delayed(Duration(milliseconds: 500 + (i * 300)), () {
-                      if (_globalIsAlertPlaying) {
-                        print('🔄 محاولة إضافية ${i+1} لإيقاف التنبيهات...');
-                        _stopAlerts();
-                      }
+                  // ✅ محاولات إضافية لإيقاف التنبيهات مع MethodChannel
+                  for (int i = 0; i < 10; i++) {
+                    Future.delayed(Duration(milliseconds: 300 + (i * 200)), () {
+                      print('🔄 محاولة إضافية ${i+1} لإيقاف التنبيهات...');
+                      _stopAlerts();
+                      try {
+                        _methodChannel.invokeMethod('stopAlerts');
+                      } catch (_) {}
                     });
                   }
                 } else {
