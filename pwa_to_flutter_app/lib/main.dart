@@ -71,6 +71,11 @@ void stopGlobalAlertSound() {
   print('🔇 [GLOBAL] محاولة إيقاف الصوت والاهتزاز...');
   
   _globalIsAlertPlaying = false;
+
+  // ✅ تعيين علم إيقاف التنبيهات في SharedPreferences للتواصل بين الـ Isolates
+  SharedPreferences.getInstance().then((prefs) {
+    prefs.setBool('stop_all_alerts', true);
+  }).catchError((_) {});
   
   if (_globalAlertTimer != null) {
     _globalAlertTimer!.cancel();
@@ -100,10 +105,35 @@ void stopGlobalAlertSound() {
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز بنجاح');
 }
 
-// ✅ دالة تشغيل الصوت في الخلفية
-void _playAlertSoundInBackground() {
+// ✅ دالة تشغيل الصوت في الخلفية مع فحص دوري لإشارة الإيقاف من Isolate الرئيسي
+void _playAlertSoundInBackground() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stop_all_alerts', false);
+  } catch (_) {}
+
   _globalIsAlertPlaying = true;
   _vibratePhoneBackground();
+
+  // ✅ مؤقت دوري لفحص SharedPreferences وإيقاف رنين الخلفية فوراً عند فتح التطبيق أو تحميل الصفحة
+  Timer? stopCheckTimer;
+  stopCheckTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+    if (!_globalIsAlertPlaying) {
+      timer.cancel();
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stopAlerts = prefs.getBool('stop_all_alerts') ?? false;
+      if (stopAlerts) {
+        print('🔇 [Isolate] تم استقبال إشارة إيقاف الصوت عبر SharedPreferences، إيقاف رنين الخلفية فوراً...');
+        stopGlobalAlertSound();
+        timer.cancel();
+      }
+    } catch (_) {
+      timer.cancel();
+    }
+  });
 
   try {
     _globalAudioPlayer = AudioPlayer();
@@ -133,6 +163,7 @@ void _playAlertSoundInBackground() {
   }
   
   Future.delayed(const Duration(seconds: 35), () {
+    stopCheckTimer?.cancel();
     stopGlobalAlertSound();
   });
 }
@@ -159,9 +190,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
-    // ✅ تم إيقاف تشغيل الصوت والاهتزاز اليدوي في الخلفية لتجنب تكرار الصوت وعدم القدرة على إيقافه عند فتح التطبيق.
-    // نظام التشغيل يقوم بتشغيل الصوت والاهتزاز تلقائياً وبشكل متكرر عبر قناة الطوارئ أدناه ويتم إيقافه فوراً عند الضغط على الإشعار أو فتح التطبيق.
-    // _playAlertSoundInBackground();
+    _playAlertSoundInBackground();
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
