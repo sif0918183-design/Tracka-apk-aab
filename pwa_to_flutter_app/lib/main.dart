@@ -637,7 +637,7 @@ class _DriverHomeState extends State<DriverHome> {
     if (fcmToken != null) {
       await _updateTokenInDrivers(fcmToken!);
     }
-    
+     
     _listenForRides();
     _notifyPWAOfDriver(id);
     _startForegroundService();
