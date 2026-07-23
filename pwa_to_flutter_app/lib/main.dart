@@ -18,7 +18,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-// ❌ إزالة import flutter_overlay_window
 
 // ✅ Global Navigator Key for Overlay
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -492,7 +491,7 @@ class _DriverHomeState extends State<DriverHome> {
       // ✅ عرض النافذة المنبثقة الثابتة
       _showRideRequestModal(data);
       
-      // ✅ عرض الإشعار المحلي
+      // ✅ عرض الإشعار المحلي (للخلفية)
       await _showLocalNotification(data);
       
       // ✅ إرسال إلى PWA
@@ -640,26 +639,43 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ دالة إيقاف الصوت
   void _stopAlertSound() {
     _globalIsAlertPlaying = false;
     _globalAlertTimer?.cancel();
     _globalAlertTimer = null;
-    _globalAudioPlayer?.stop();
-    _globalAudioPlayer?.dispose();
-    _globalAudioPlayer = null;
+    
+    try {
+      _globalAudioPlayer?.stop();
+      _globalAudioPlayer?.dispose();
+      _globalAudioPlayer = null;
+    } catch (_) {}
+    
+    // ✅ إلغاء الاهتزاز
     try {
       Vibration.cancel();
     } catch (_) {}
+    
+    print('🔇 تم إيقاف الصوت والاهتزاز');
   }
 
   // ✅ دالة شاملة لإيقاف جميع التنبيهات
   void _stopAlerts() {
+    print('🛑 إيقاف جميع التنبيهات...');
+    
+    // ✅ إيقاف الصوت
     _stopAlertSound();
+    
+    // ✅ إزالة الـ Overlay
     _overlayEntry?.remove();
     _overlayEntry = null;
+    
+    // ✅ إلغاء جميع الإشعارات المحلية
     try {
       notifications.cancelAll();
     } catch (_) {}
+    
+    print('✅ تم إيقاف جميع التنبيهات بنجاح');
   }
 
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
@@ -693,7 +709,9 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
-    } catch (_) {}
+    } catch (e) {
+      print('❌ خطأ في عرض الإشعار: $e');
+    }
   }
 
   Future<void> _showTravelNotification(Map<String, dynamic> data, String? title, String? body) async {
@@ -808,7 +826,9 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
+    // ✅ إيقاف جميع التنبيهات فوراً
     _stopAlerts();
+    
     try { 
       await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
     } catch (_) {}
@@ -822,12 +842,15 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _rejectRide() {
+    // ✅ إيقاف جميع التنبيهات فوراً
     _stopAlerts();
   }
 
   Future<void> _sendToPWA(Map<String, dynamic> data) async {
     if (web == null) return;
-    await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
+    try {
+      await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
+    } catch (_) {}
   }
 
   void _notifyPWAOfDriver(String id) { 
@@ -839,8 +862,10 @@ class _DriverHomeState extends State<DriverHome> {
     statusSyncTimer?.cancel();
     statusSyncTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       if (web == null || driverId == null) return;
-      final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_forever_online')");
-      if (res != null) _updateDriverStatusInSupabase(res == 'true');
+      try {
+        final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_forever_online')");
+        if (res != null) _updateDriverStatusInSupabase(res == 'true');
+      } catch (_) {}
     });
   }
 
@@ -877,12 +902,36 @@ class _DriverHomeState extends State<DriverHome> {
             ),
             onWebViewCreated: (controller) {
               web = controller;
-              controller.addJavaScriptHandler(handlerName: 'driverLogin', callback: (args) { 
-                if (args.isNotEmpty && args[0] is Map) _saveDriver(args[0]['driverId'].toString()); 
-              });
-              controller.addJavaScriptHandler(handlerName: 'stopAlerts', callback: (args) { 
-                _stopAlerts(); 
-              });
+              
+              // ✅ Handler لإيقاف التنبيهات من PWA
+              controller.addJavaScriptHandler(
+                handlerName: 'stopAlertsFromPWA', 
+                callback: (args) { 
+                  print('🛑 تم استلام طلب إيقاف التنبيهات من PWA');
+                  _stopAlerts(); 
+                  return 'OK';
+                }
+              );
+              
+              // ✅ Handler لتسجيل الدخول
+              controller.addJavaScriptHandler(
+                handlerName: 'driverLogin', 
+                callback: (args) { 
+                  if (args.isNotEmpty && args[0] is Map) {
+                    _saveDriver(args[0]['driverId'].toString()); 
+                  }
+                  return 'OK';
+                }
+              );
+              
+              // ✅ Handler لإيقاف التنبيهات (للتوافق مع الكود القديم)
+              controller.addJavaScriptHandler(
+                handlerName: 'stopAlerts', 
+                callback: (args) { 
+                  _stopAlerts(); 
+                  return 'OK';
+                }
+              );
 
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
@@ -897,7 +946,8 @@ class _DriverHomeState extends State<DriverHome> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
-                if (!currentUrl.contains('accept-ride.html')) {
+                // ✅ إذا تم تحميل صفحة قبول الرحلة، أوقف جميع التنبيهات
+                if (currentUrl.contains('accept-ride.html')) {
                   _stopAlerts();
                 }
               }
@@ -921,8 +971,10 @@ class _DriverHomeState extends State<DriverHome> {
   void _startDriverSync() {
     Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (web == null) return;
-      final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
-      if (res != null && res != 'null' && res != driverId) _saveDriver(res);
+      try {
+        final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
+        if (res != null && res != 'null' && res != driverId) _saveDriver(res);
+      } catch (_) {}
     });
   }
 }
