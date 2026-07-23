@@ -32,13 +32,13 @@ const String _rideRequestType = 'RIDE_REQUEST';
 const String _emergencyChannelId = 'emergency_channel_v11';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
-// ✅ متغيرات عالمية للصوت والاهتزاز (جعلها static للوصول إليها من أي مكان)
-static AudioPlayer? _globalAudioPlayer;
-static Timer? _globalAlertTimer;
-static bool _globalIsAlertPlaying = false;
+// ✅ متغيرات عالمية للصوت والاهتزاز (بدون static)
+AudioPlayer? _globalAudioPlayer;
+Timer? _globalAlertTimer;
+bool _globalIsAlertPlaying = false;
 
-// ✅ MethodChannel للتواصل مع Native (لإيقاف الصوت من أي مكان)
-static const MethodChannel _methodChannel = MethodChannel('com.tracka.driver/alerts');
+// ✅ MethodChannel للتواصل مع Native (بدون static)
+final MethodChannel _methodChannel = MethodChannel('com.tracka.driver/alerts');
 
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
@@ -100,7 +100,7 @@ void stopGlobalAlertSound() {
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز بنجاح');
 }
 
-// ✅ دالة تشغيل الصوت (معدلة)
+// ✅ دالة تشغيل الصوت في الخلفية
 void _playAlertSoundInBackground() {
   _globalIsAlertPlaying = true;
   _vibratePhoneBackground();
@@ -1006,7 +1006,7 @@ class _DriverHomeState extends State<DriverHome> {
                   _isAcceptPageOpen = true;
                   _stopAlerts();
                   
-                  // ✅ محاولات إضافية لإيقاف التنبيهات مع MethodChannel
+                  // ✅ محاولات إضافية لإيقاف التنبيهات
                   for (int i = 0; i < 10; i++) {
                     Future.delayed(Duration(milliseconds: 300 + (i * 200)), () {
                       print('🔄 محاولة إضافية ${i+1} لإيقاف التنبيهات...');
