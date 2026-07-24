@@ -32,12 +32,12 @@ const String _rideRequestType = 'RIDE_REQUEST';
 const String _emergencyChannelId = 'emergency_channel_v11';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
-// ✅ متغيرات عالمية للصوت والاهتزاز (بدون static)
+// ✅ متغيرات عالمية للصوت والاهتزاز
 AudioPlayer? _globalAudioPlayer;
 Timer? _globalAlertTimer;
 bool _globalIsAlertPlaying = false;
 
-// ✅ MethodChannel للتواصل مع Native (بدون static)
+// ✅ MethodChannel للتواصل مع Native
 final MethodChannel _methodChannel = MethodChannel('com.tracka.driver/alerts');
 
 String? _extractRideId(Map<String, dynamic> data) {
@@ -66,7 +66,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ دالة عامة لإيقاف الصوت (يمكن استدعاؤها من أي مكان)
+// ✅ دالة عامة لإيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
   print('🔇 [GLOBAL] محاولة إيقاف الصوت والاهتزاز...');
   
@@ -75,16 +75,13 @@ void stopGlobalAlertSound() {
   if (_globalAlertTimer != null) {
     _globalAlertTimer!.cancel();
     _globalAlertTimer = null;
-    print('⏹️ [GLOBAL] تم إلغاء المؤقت');
   }
   
   try {
     if (_globalAudioPlayer != null) {
-      print('🎵 [GLOBAL] إيقاف مشغل الصوت...');
       _globalAudioPlayer!.stop();
       _globalAudioPlayer!.dispose();
       _globalAudioPlayer = null;
-      print('✅ [GLOBAL] تم إيقاف مشغل الصوت');
     }
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إيقاف مشغل الصوت: $e');
@@ -92,12 +89,9 @@ void stopGlobalAlertSound() {
   
   try {
     Vibration.cancel();
-    print('📳 [GLOBAL] تم إلغاء الاهتزاز');
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إلغاء الاهتزاز: $e');
   }
-  
-  print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز بنجاح');
 }
 
 // ✅ دالة تشغيل الصوت في الخلفية
@@ -199,16 +193,16 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
-          fullScreenIntent: true,
+          autoCancel: false,
           category: fln.AndroidNotificationCategory.call,
           playSound: true,
           enableVibration: true,
           additionalFlags: Int32List.fromList([4]),
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+          vibrationPattern: Int64List.fromList([0, 600, 200, 600, 200, 600, 200, 600]),
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
-          timeoutAfter: null,
+          timeoutAfter: 35000,
         ),
       ),
       payload: jsonEncode(data),
@@ -309,20 +303,15 @@ class _DriverHomeState extends State<DriverHome> {
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   
-  // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
-  
-  // ✅ متغير لتتبع ما إذا كانت صفحة القبول مفتوحة
   bool _isAcceptPageOpen = false;
 
   @override
   void initState() {
     super.initState();
     
-    // ✅ إعداد MethodChannel للاستماع لأوامر الإيقاف من Native
     _methodChannel.setMethodCallHandler((call) async {
       if (call.method == 'stopAlerts') {
-        print('📱 [MethodChannel] استلام أمر إيقاف التنبيهات من Native');
         _stopAlerts();
         return true;
       }
@@ -337,12 +326,9 @@ class _DriverHomeState extends State<DriverHome> {
 
   @override
   void dispose() {
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
-    _globalAudioPlayer?.dispose();
     super.dispose();
   }
 
@@ -351,9 +337,7 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
@@ -361,23 +345,6 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة
-      for (int i = 10; i <= 20; i++) {
-        try {
-          await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
-          await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
-        } catch (_) {}
-      }
-      
-      try {
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v12');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v13');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v14');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
-      } catch (_) {}
-
-      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -390,7 +357,6 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -400,28 +366,19 @@ class _DriverHomeState extends State<DriverHome> {
         enableVibration: true,
       );
       await androidImplementation.createNotificationChannel(travelChan);
-      
-      print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
     }
   }
 
-  // ✅ ✅ ✅ الدالة لتحديث التوكن عبر RPC ✅ ✅ ✅
   Future<void> _updateTokenInDrivers(String token) async {
     if (driverId == null) return;
     try {
-      final response = await supabase.rpc(
+      await supabase.rpc(
         'update_driver_fcm_token',
         params: {
           'p_driver_id': driverId,
           'p_fcm_token': token,
         },
       );
-      
-      if (response == true) {
-        print('✅ Token updated successfully via RPC');
-      } else {
-        print('❌ Failed to update token via RPC');
-      }
     } catch (e) {
       print('❌ Error updating token via RPC: $e');
     }
@@ -431,7 +388,6 @@ class _DriverHomeState extends State<DriverHome> {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
     
-    // ✅ منع Firebase من عرض الإشعار في المقدمة (لتجنب التكرار)
     await messaging.setForegroundNotificationPresentationOptions(
       alert: false,
       badge: false,
@@ -449,21 +405,16 @@ class _DriverHomeState extends State<DriverHome> {
       await _updateTokenInDrivers(newToken);
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      _stopAlertSound();
-      _overlayEntry?.remove();
-      _overlayEntry = null;
+      _stopAlerts();
       _handleNotificationClick(message.data);
     });
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         _handleNotificationClick(message.data); 
       }
     });
     
-    // ✅ معالجة الإشعار عند وصوله والتطبيق في المقدمة
     FirebaseMessaging.onMessage.listen((message) {
       _handleFcmMessage(message);
     });
@@ -473,9 +424,7 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
@@ -506,40 +455,29 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
-  // ✅ ✅ ✅ معالجة الإشعارات مع تمييز الأنواع ومنع التكرار ✅ ✅ ✅
   void _handleFcmMessage(RemoteMessage message) async {
     Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
     final bool isRideRequest = (notifType == _rideRequestType);
 
-    // ✅ إشعارات السفر (DRIVER_OFFER, DRIVER_SELECTED, NEW_CHAT_MESSAGE)
     if (isTravelNotif) {
       await _showTravelNotification(data, message.notification?.title, message.notification?.body);
       return;
     }
 
-    // ✅ إشعارات RIDE_REQUEST (الرحلات الفورية)
     if (isRideRequest) {
       String? rideId = _extractRideId(data);
       if (await _isDuplicateRide(rideId)) return;
 
-      _stopAlertSound();
+      _stopAlerts();
       _playAlertSound();
-      
-      // ✅ عرض النافذة المنبثقة الثابتة
       _showRideRequestModal(data);
-      
-      // ✅ عرض الإشعار المحلي (للخلفية)
       await _showLocalNotification(data);
-      
-      // ✅ إرسال إلى PWA
       await _sendToPWA(data);
-      
       return;
     }
 
-    // ✅ أي إشعار آخر
     await _showTravelNotification(data, message.notification?.title, message.notification?.body);
   }
 
@@ -620,9 +558,8 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _playAlertSound() {
-    _stopAlertSound();
+    _stopAlerts();
     _globalIsAlertPlaying = true;
-
     _vibratePhone();
 
     try {
@@ -653,7 +590,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     Future.delayed(const Duration(seconds: 35), () {
-      _stopAlertSound();
+      _stopAlerts();
     });
   }
 
@@ -666,49 +603,37 @@ class _DriverHomeState extends State<DriverHome> {
           200, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600
         ], repeat: 0);
-        
-        for (int i = 2; i <= 12; i += 2) {
-          Future.delayed(Duration(seconds: i), () {
-            if (_globalIsAlertPlaying) {
-              Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400], repeat: 0);
-            }
-          });
-        }
       }
     } catch (_) {}
   }
 
-  // ✅ دالة إيقاف الصوت (تستخدم الدالة العامة)
-  void _stopAlertSound() {
-    stopGlobalAlertSound();
-  }
-
-  // ✅ دالة شاملة لإيقاف جميع التنبيهات
-  void _stopAlerts() {
-    print('🛑 إيقاف جميع التنبيهات...');
+  void _stopAlerts() async {
+    print('🛑 إيقاف جميع التنبيهات المباشرة والتنفيذية...');
     
-    // ✅ إيقاف الصوت باستخدام الدالة العامة
     stopGlobalAlertSound();
     
-    // ✅ إزالة الـ Overlay
     if (_overlayEntry != null) {
-      _overlayEntry!.remove();
+      try {
+        _overlayEntry!.remove();
+      } catch (_) {}
       _overlayEntry = null;
-      print('❌ تم إزالة الـ Overlay');
     }
     
-    // ✅ إلغاء جميع الإشعارات المحلية
     try {
-      notifications.cancelAll();
-      print('📬 تم إلغاء جميع الإشعارات');
+      await notifications.cancelAll();
     } catch (e) {
       print('⚠️ خطأ في إلغاء الإشعارات: $e');
     }
+
+    try {
+      await Vibration.cancel();
+    } catch (_) {}
+
+    try {
+      await _methodChannel.invokeMethod('stopAlerts');
+    } catch (_) {}
     
-    // ✅ إعادة تعيين حالة صفحة القبول
     _isAcceptPageOpen = false;
-    
-    print('✅ تم إيقاف جميع التنبيهات بنجاح');
   }
 
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
@@ -728,16 +653,16 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
-            fullScreenIntent: true,
+            autoCancel: false,
             category: fln.AndroidNotificationCategory.call,
             playSound: true,
             enableVibration: true,
             additionalFlags: Int32List.fromList([4]),
-            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+            vibrationPattern: Int64List.fromList([0, 600, 200, 600, 200, 600, 200, 600]),
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
-            timeoutAfter: null,
+            timeoutAfter: 35000,
           ),
         ),
         payload: jsonEncode(data),
@@ -768,10 +693,11 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  // ✅ نافذة منبثقة ثابتة باستخدام Overlay
   void _showRideRequestModal(Map<String, dynamic> data) {
-    // ✅ إزالة أي نافذة سابقة
-    _overlayEntry?.remove();
+    if (_overlayEntry != null) {
+      try { _overlayEntry!.remove(); } catch (_) {}
+      _overlayEntry = null;
+    }
     
     final context = navigatorKey.currentContext;
     if (context == null) return;
@@ -860,15 +786,12 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    // ✅ إيقاف جميع التنبيهات فوراً
-    print('📞 قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
     try { 
       await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
     } catch (_) {}
     
-    // فتح صفحة القبول
     final rideId = _extractRideId(data);
     if (rideId != null && web != null) {
       _isAcceptPageOpen = true;
@@ -878,8 +801,6 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _rejectRide() {
-    // ✅ إيقاف جميع التنبيهات فوراً
-    print('❌ رفض الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
   }
 
@@ -940,43 +861,29 @@ class _DriverHomeState extends State<DriverHome> {
             onWebViewCreated: (controller) {
               web = controller;
               
-              // ✅ Handler لإيقاف التنبيهات من PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
-                  print('🛑 تم استلام طلب إيقاف التنبيهات من PWA (stopAlertsFromPWA)');
                   _stopAlerts(); 
-                  // ✅ محاولة إضافية عبر MethodChannel
-                  try {
-                    _methodChannel.invokeMethod('stopAlerts');
-                  } catch (_) {}
                   return 'OK';
                 }
               );
               
-              // ✅ Handler لإيقاف التنبيهات (للتوافق مع الكود القديم)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
-                  print('🛑 تم استلام طلب إيقاف التنبيهات (stopAlerts)');
                   _stopAlerts();
-                  try {
-                    _methodChannel.invokeMethod('stopAlerts');
-                  } catch (_) {}
                   return 'OK';
                 }
               );
               
-              // ✅ Handler للتحقق من حالة التنبيهات
               controller.addJavaScriptHandler(
                 handlerName: 'isAlertPlaying', 
                 callback: (args) { 
-                  print('📊 التحقق من حالة التنبيهات: $_globalIsAlertPlaying');
                   return _globalIsAlertPlaying;
                 }
               );
               
-              // ✅ Handler لتسجيل الدخول
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
@@ -991,6 +898,18 @@ class _DriverHomeState extends State<DriverHome> {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
               }
             },
+            onLoadStart: (controller, url) {
+              if (url != null && url.toString().contains('accept-ride.html')) {
+                _isAcceptPageOpen = true;
+                _stopAlerts();
+              }
+            },
+            onUpdateVisitedHistory: (controller, url, isReload) {
+              if (url != null && url.toString().contains('accept-ride.html')) {
+                _isAcceptPageOpen = true;
+                _stopAlerts();
+              }
+            },
             onGeolocationPermissionsShowPrompt: (controller, origin) async => 
                 GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
             onLoadStop: (controller, url) async {
@@ -1000,22 +919,9 @@ class _DriverHomeState extends State<DriverHome> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
-                // ✅ إذا تم تحميل صفحة قبول الرحلة، أوقف جميع التنبيهات فوراً
                 if (currentUrl.contains('accept-ride.html')) {
-                  print('📄 تم تحميل accept-ride.html، إيقاف التنبيهات...');
                   _isAcceptPageOpen = true;
                   _stopAlerts();
-                  
-                  // ✅ محاولات إضافية لإيقاف التنبيهات
-                  for (int i = 0; i < 10; i++) {
-                    Future.delayed(Duration(milliseconds: 300 + (i * 200)), () {
-                      print('🔄 محاولة إضافية ${i+1} لإيقاف التنبيهات...');
-                      _stopAlerts();
-                      try {
-                        _methodChannel.invokeMethod('stopAlerts');
-                      } catch (_) {}
-                    });
-                  }
                 } else {
                   _isAcceptPageOpen = false;
                 }
