@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -101,10 +103,10 @@
 
         <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ✅ قناة افتراضية لإشعارات الرحلات الجديدة -->
+        <!-- ✅ قناة افتراضية لإشعارات الرحلات الطارئة -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_default" />
+            android:value="emergency_channel_v11" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
