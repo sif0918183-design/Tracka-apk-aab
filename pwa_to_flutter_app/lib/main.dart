@@ -227,12 +227,6 @@ class MyTaskHandler extends TaskHandler {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  
-  // تثبيت الاتجاه العمودي
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
 
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -286,11 +280,6 @@ class DriverApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
-      title: 'تراكا - السائق',
-      theme: ThemeData(
-        primarySwatch: Colors.green,
-        useMaterial3: true,
-      ),
       home: const DriverHome(),
     );
   }
@@ -314,6 +303,10 @@ class _DriverHomeState extends State<DriverHome> {
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   
+  // ✅ قناة مراقبة إيقاف التنبيهات عبر Supabase Realtime
+  RealtimeChannel? _rideAlertChannel;
+  String? _currentDriverId;
+  
   OverlayEntry? _overlayEntry;
   bool _isAcceptPageOpen = false;
 
@@ -333,6 +326,9 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    
+    // ✅ بدء مراقبة إيقاف التنبيهات عبر Supabase Realtime
+    _initDriverAlertListener();
   }
 
   @override
@@ -340,7 +336,118 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlerts();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
+    _rideAlertChannel?.unsubscribe();
     super.dispose();
+  }
+
+  // ============================================================
+  // ✅ دالة بدء مراقبة العمود المخصص لإيقاف الصوت
+  // ============================================================
+  void _startListeningToAlertStop(String driverId) {
+    _currentDriverId = driverId;
+
+    // إلغاء أي اشتراك سابق إن وجد
+    _rideAlertChannel?.unsubscribe();
+
+    _rideAlertChannel = Supabase.instance.client
+        .channel('public:rides:alert_stop_$driverId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'rides',
+          callback: (payload) async {
+            final newRecord = payload.newRecord;
+            final openedByDriverId = newRecord['alert_opened_by_driver_id']?.toString();
+
+            debugPrint('⚡ تحديث جديد في جدول rides: openedByDriverId=$openedByDriverId');
+
+            // المقارنة المباشرة بين driver_id السائق الحالي والعمود الجديد
+            if (openedByDriverId != null && openedByDriverId == _currentDriverId) {
+              debugPrint('🛑 تطابق معرّف السائق! إيقاف الصوت والاهتزاز والإشعارات فوراً.');
+              
+              // ✅ إيقاف التنبيهات فوراً
+              _stopAlerts();
+              
+              // ✅ إيقاف الصوت العالمي أيضاً للتأكيد
+              stopGlobalAlertSound();
+            }
+          },
+        )
+        .subscribe();
+        
+    debugPrint('✅ بدء مراقبة إيقاف التنبيهات للسائق: $driverId');
+  }
+
+  // ============================================================
+  // ✅ دالة جلب معرّف السائق وتشغيل المراقبة
+  // ============================================================
+  Future<void> _initDriverAlertListener() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // محاولة جلب driverId من عدة مصادر محتملة
+      String? driverIdFromPrefs;
+      
+      // 1. من tarhal_driver (المستخدم في PWA)
+      final driverJson = prefs.getString('tarhal_driver');
+      if (driverJson != null) {
+        try {
+          final driverData = jsonDecode(driverJson);
+          driverIdFromPrefs = driverData['id']?.toString();
+        } catch (e) {
+          debugPrint('⚠️ خطأ في قراءة tarhal_driver: $e');
+        }
+      }
+      
+      // 2. من driver_id (المستخدم في Flutter)
+      if (driverIdFromPrefs == null) {
+        driverIdFromPrefs = prefs.getString('driver_id');
+      }
+      
+      if (driverIdFromPrefs != null) {
+        _startListeningToAlertStop(driverIdFromPrefs);
+        debugPrint('✅ تم تفعيل مراقبة إيقاف التنبيهات للسائق: $driverIdFromPrefs');
+      } else {
+        debugPrint('⚠️ لم يتم العثور على driverId لتفعيل مراقبة إيقاف التنبيهات');
+      }
+    } catch (e) {
+      debugPrint('❌ خطأ في تحميل معرّف السائق للمراقبة: $e');
+    }
+  }
+
+  // ============================================================
+  // ✅ دالة تحديث السائق عند تغييره
+  // ============================================================
+  Future<void> _saveDriver(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('driver_id', id);
+    driverId = id;
+    
+    if (fcmToken != null) {
+      await _updateTokenInDrivers(fcmToken!);
+    }
+    
+    // ✅ تحديث مراقبة إيقاف التنبيهات للسائق الجديد
+    _startListeningToAlertStop(id);
+    
+    _listenForRides();
+    _notifyPWAOfDriver(id);
+    _startForegroundService();
+  }
+
+  Future<void> _updateTokenInDrivers(String token) async {
+    if (driverId == null) return;
+    try {
+      await supabase.rpc(
+        'update_driver_fcm_token',
+        params: {
+          'p_driver_id': driverId,
+          'p_fcm_token': token,
+        },
+      );
+    } catch (e) {
+      print('❌ Error updating token via RPC: $e');
+    }
   }
 
   Future<void> _initNotifications() async {
@@ -377,21 +484,6 @@ class _DriverHomeState extends State<DriverHome> {
         enableVibration: true,
       );
       await androidImplementation.createNotificationChannel(travelChan);
-    }
-  }
-
-  Future<void> _updateTokenInDrivers(String token) async {
-    if (driverId == null) return;
-    try {
-      await supabase.rpc(
-        'update_driver_fcm_token',
-        params: {
-          'p_driver_id': driverId,
-          'p_fcm_token': token,
-        },
-      );
-    } catch (e) {
-      print('❌ Error updating token via RPC: $e');
     }
   }
 
@@ -511,20 +603,6 @@ class _DriverHomeState extends State<DriverHome> {
       _startStatusSyncWithPWA(); 
       _startForegroundService(); 
     }
-  }
-
-  Future<void> _saveDriver(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('driver_id', id);
-    driverId = id;
-    
-    if (fcmToken != null) {
-      await _updateTokenInDrivers(fcmToken!);
-    }
-    
-    _listenForRides();
-    _notifyPWAOfDriver(id);
-    _startForegroundService();
   }
 
   Future<void> _startForegroundService() async {
