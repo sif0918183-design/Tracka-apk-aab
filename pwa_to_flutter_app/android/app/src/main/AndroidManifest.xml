@@ -2,6 +2,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.tracka.app">
 
+    <!-- ✅ أذونات أساسية -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -14,8 +15,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    
+    <!-- ✅ أذونات إضافية للإشعارات -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <queries>
         <intent>
@@ -57,6 +59,7 @@
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true">
 
+        <!-- ✅ النشاط الرئيسي -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -76,34 +79,39 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
+            <!-- ✅ Deep Link لقبول الرحلة -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https"
                       android:host="tracka.zoonasd.com"
-                      android:pathPrefix="/accept-ride.html" />
+                      android:pathPrefix="/driver_app/accept-ride.html" />
             </intent-filter>
 
         </activity>
 
+        <!-- ✅ خدمات الإشعارات -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
             android:exported="false" />
 
+        <!-- ✅ خدمة الخلفية -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
+        <!-- ✅ InAppWebView -->
         <activity
             android:name="com.pichillilorenzo.flutter_inappwebview.InAppBrowserActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- ✅ Flutter Embedding -->
         <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ✅ قناة افتراضية لإشعارات الرحلات الطارئة -->
+        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
             android:value="emergency_channel_v11" />
@@ -111,6 +119,11 @@
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
             android:resource="@mipmap/ic_launcher" />
+
+        <!-- ✅ إشعارات الطوارئ في وضع ملء الشاشة -->
+        <meta-data 
+            android:name="com.google.firebase.messaging.default_notification_color" 
+            android:resource="@color/notification_color" />
 
     </application>
 </manifest>
