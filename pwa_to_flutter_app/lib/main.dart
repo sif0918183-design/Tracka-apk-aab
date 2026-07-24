@@ -67,15 +67,19 @@ Future<bool> _isDuplicateRide(String? rideId) async {
 }
 
 // ✅ دالة عامة لإيقاف الصوت (يمكن استدعاؤها من أي مكان)
-void stopGlobalAlertSound() {
+Future<void> stopGlobalAlertSound() async {
   print('🔇 [GLOBAL] محاولة إيقاف الصوت والاهتزاز...');
   
   _globalIsAlertPlaying = false;
 
-  // ✅ تعيين علم إيقاف التنبيهات في SharedPreferences للتواصل بين الـ Isolates
-  SharedPreferences.getInstance().then((prefs) {
-    prefs.setBool('stop_all_alerts', true);
-  }).catchError((_) {});
+  // ✅ تعيين علم إيقاف التنبيهات في SharedPreferences للتواصل بين الـ Isolates مع الحفظ المباشر
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stop_all_alerts', true);
+    print('📝 [GLOBAL] تم حفظ stop_all_alerts = true في SharedPreferences');
+  } catch (e) {
+    print('⚠️ [GLOBAL] خطأ في حفظ SharedPreferences: $e');
+  }
   
   if (_globalAlertTimer != null) {
     _globalAlertTimer!.cancel();
@@ -124,10 +128,11 @@ void _playAlertSoundInBackground() async {
     }
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload(); // ✅ هام جداً: تحديث الذاكرة التخزينية لتجاوز كاش الـ Isolate وقراءة القيمة الجديدة من القرص مباشرة
       final stopAlerts = prefs.getBool('stop_all_alerts') ?? false;
       if (stopAlerts) {
         print('🔇 [Isolate] تم استقبال إشارة إيقاف الصوت عبر SharedPreferences، إيقاف رنين الخلفية فوراً...');
-        stopGlobalAlertSound();
+        await stopGlobalAlertSound();
         timer.cancel();
       }
     } catch (_) {
@@ -705,11 +710,11 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   // ✅ دالة شاملة لإيقاف جميع التنبيهات
-  void _stopAlerts() {
+  Future<void> _stopAlerts() async {
     print('🛑 إيقاف جميع التنبيهات...');
     
     // ✅ إيقاف الصوت باستخدام الدالة العامة
-    stopGlobalAlertSound();
+    await stopGlobalAlertSound();
     
     // ✅ إزالة الـ Overlay
     if (_overlayEntry != null) {
