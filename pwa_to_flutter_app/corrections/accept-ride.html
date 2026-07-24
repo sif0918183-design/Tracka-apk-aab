@@ -234,6 +234,15 @@
                 fetchRideDetails(currentRideId);
             }
             startTimer();
+
+            // ✅ إيقاف الرنين فوراً عند تحميل الصفحة
+            stopFlutterAlerts();
+        });
+
+        // ✅ إيقاف الرنين بمجرد جاهزية منصة WebView (لضمان عمل الـ Handlers)
+        window.addEventListener("flutterInAppWebViewPlatformReady", function(event) {
+            console.log('WebView Platform Ready - stopping alerts');
+            stopFlutterAlerts();
         });
 
         async function fetchRideDetails(rideId) {

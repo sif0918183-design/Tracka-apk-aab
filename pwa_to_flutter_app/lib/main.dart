@@ -67,10 +67,19 @@ Future<bool> _isDuplicateRide(String? rideId) async {
 }
 
 // ✅ دالة عامة لإيقاف الصوت (يمكن استدعاؤها من أي مكان)
-void stopGlobalAlertSound() {
+Future<void> stopGlobalAlertSound() async {
   print('🔇 [GLOBAL] محاولة إيقاف الصوت والاهتزاز...');
   
   _globalIsAlertPlaying = false;
+
+  // ✅ تعيين علم إيقاف التنبيهات في SharedPreferences للتواصل بين الـ Isolates مع الحفظ المباشر
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stop_all_alerts', true);
+    print('📝 [GLOBAL] تم حفظ stop_all_alerts = true في SharedPreferences');
+  } catch (e) {
+    print('⚠️ [GLOBAL] خطأ في حفظ SharedPreferences: $e');
+  }
   
   if (_globalAlertTimer != null) {
     _globalAlertTimer!.cancel();
@@ -100,10 +109,36 @@ void stopGlobalAlertSound() {
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز بنجاح');
 }
 
-// ✅ دالة تشغيل الصوت في الخلفية
-void _playAlertSoundInBackground() {
+// ✅ دالة تشغيل الصوت في الخلفية مع فحص دوري لإشارة الإيقاف من Isolate الرئيسي
+void _playAlertSoundInBackground() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('stop_all_alerts', false);
+  } catch (_) {}
+
   _globalIsAlertPlaying = true;
   _vibratePhoneBackground();
+
+  // ✅ مؤقت دوري لفحص SharedPreferences وإيقاف رنين الخلفية فوراً عند فتح التطبيق أو تحميل الصفحة
+  Timer? stopCheckTimer;
+  stopCheckTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+    if (!_globalIsAlertPlaying) {
+      timer.cancel();
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload(); // ✅ هام جداً: تحديث الذاكرة التخزينية لتجاوز كاش الـ Isolate وقراءة القيمة الجديدة من القرص مباشرة
+      final stopAlerts = prefs.getBool('stop_all_alerts') ?? false;
+      if (stopAlerts) {
+        print('🔇 [Isolate] تم استقبال إشارة إيقاف الصوت عبر SharedPreferences، إيقاف رنين الخلفية فوراً...');
+        await stopGlobalAlertSound();
+        timer.cancel();
+      }
+    } catch (_) {
+      timer.cancel();
+    }
+  });
 
   try {
     _globalAudioPlayer = AudioPlayer();
@@ -133,6 +168,7 @@ void _playAlertSoundInBackground() {
   }
   
   Future.delayed(const Duration(seconds: 35), () {
+    stopCheckTimer?.cancel();
     stopGlobalAlertSound();
   });
 }
@@ -337,9 +373,7 @@ class _DriverHomeState extends State<DriverHome> {
 
   @override
   void dispose() {
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
@@ -351,9 +385,7 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
@@ -449,16 +481,12 @@ class _DriverHomeState extends State<DriverHome> {
       await _updateTokenInDrivers(newToken);
     });
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      _stopAlertSound();
-      _overlayEntry?.remove();
-      _overlayEntry = null;
+      _stopAlerts();
       _handleNotificationClick(message.data);
     });
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
-        _stopAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
+        _stopAlerts();
         _handleNotificationClick(message.data); 
       }
     });
@@ -473,9 +501,7 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
-    _stopAlertSound();
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+    _stopAlerts();
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
@@ -653,7 +679,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     Future.delayed(const Duration(seconds: 35), () {
-      _stopAlertSound();
+      _stopAlerts();
     });
   }
 
@@ -684,11 +710,11 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   // ✅ دالة شاملة لإيقاف جميع التنبيهات
-  void _stopAlerts() {
+  Future<void> _stopAlerts() async {
     print('🛑 إيقاف جميع التنبيهات...');
     
     // ✅ إيقاف الصوت باستخدام الدالة العامة
-    stopGlobalAlertSound();
+    await stopGlobalAlertSound();
     
     // ✅ إزالة الـ Overlay
     if (_overlayEntry != null) {
