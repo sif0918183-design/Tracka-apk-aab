@@ -89,6 +89,15 @@
                       android:pathPrefix="/driver_app/accept-ride.html" />
             </intent-filter>
 
+            <!-- ✅ Deep Links لتوثيق Google OAuth -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tracka" android:host="auth-callback" />
+                <data android:scheme="zoona" android:host="auth-callback" />
+            </intent-filter>
+
         </activity>
 
         <!-- ✅ خدمات الإشعارات -->

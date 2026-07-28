@@ -18,6 +18,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:app_links/app_links.dart';
 
 // ✅ Global Navigator Key for Overlay
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -309,6 +310,8 @@ class _DriverHomeState extends State<DriverHome> {
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
   
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
@@ -320,6 +323,7 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    _initDeepLinks();
   }
 
   @override
@@ -329,8 +333,61 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry = null;
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
+    _linkSubscription?.cancel();
     _globalAudioPlayer?.dispose();
     super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // التقاط الرابط الأولي عند فتح التطبيق (إذا تم تشغيله عبر رابط عميق)
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleDeepLink(initialUri);
+      }
+    } catch (e) {
+      print('❌ [DeepLink] خطأ في جلب الرابط الأولي: $e');
+    }
+
+    // الاستماع للروابط العميقة الواردة أثناء عمل التطبيق
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      print('🌐 [DeepLink] تم التقاط رابط عميق جديد: $uri');
+      _handleDeepLink(uri);
+    }, onError: (err) {
+      print('❌ [DeepLink] خطأ في دفق الروابط العميقة: $err');
+    });
+  }
+
+  void _handleDeepLink(Uri uri) {
+    // التحقق من المخطط والـ host لروابط التوثيق
+    if ((uri.scheme == 'tracka' || uri.scheme == 'zoona') && uri.host == 'auth-callback') {
+      try {
+        // إغلاق Custom Tabs تلقائياً عن طريق استدعاء closeInAppWebView (إذا كان مدعوماً) أو مجرد إتمام التوجيه
+        closeInAppWebView().catchError((_) {});
+      } catch (_) {}
+
+      // استخراج كامل الـ Fragment/Hash أو الـ Query لتوجيهه لصفحة الـ PWA
+      String fragment = '';
+      if (uri.hasFragment) {
+        fragment = uri.fragment;
+      } else if (uri.query.isNotEmpty) {
+        // إذا جاءت الـ tokens كـ query parameters، نحولها لشكل hash ليناسب الـ PWA
+        fragment = uri.query;
+      }
+
+      final String webRedirectUrl = 'https://tracka.zoonasd.com/passenger_app/index.html#$fragment';
+      print('🚀 [DeepLink] تحويل المستخدم لصفحة الـ PWA: $webRedirectUrl');
+
+      if (web != null) {
+        web!.loadUrl(urlRequest: URLRequest(url: WebUri(webRedirectUrl)));
+      } else {
+        setState(() {
+          _pendingUrl = webRedirectUrl;
+        });
+      }
+    }
   }
 
   Future<void> _initNotifications() async {
@@ -944,7 +1001,20 @@ class _DriverHomeState extends State<DriverHome> {
             },
             shouldOverrideUrlLoading: (controller, nav) async {
               final uri = nav.request.url!;
-              if (['whatsapp', 'tel', 'sms', 'mailto'].contains(uri.scheme) || uri.toString().contains('wa.me')) {
+              final urlString = uri.toString();
+
+              // اعتراض روابط التوثيق الخاصة بـ Google OAuth أو Supabase Auth لفتحها في Chrome Custom Tabs
+              if (urlString.contains('accounts.google.com') || urlString.contains('supabase.co/auth')) {
+                try {
+                  print('🌐 [OAuth] اعتراض رابط التوثيق وفتحه في Chrome Custom Tabs: $urlString');
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (e) {
+                  print('❌ [OAuth] خطأ في فتح رابط التوثيق: $e');
+                }
+                return NavigationActionPolicy.CANCEL;
+              }
+
+              if (['whatsapp', 'tel', 'sms', 'mailto'].contains(uri.scheme) || urlString.contains('wa.me')) {
                 try { await launchUrl(uri, mode: LaunchMode.externalApplication); } catch (_) {}
                 return NavigationActionPolicy.CANCEL;
               }
