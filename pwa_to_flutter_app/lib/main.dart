@@ -312,6 +312,7 @@ class _DriverHomeState extends State<DriverHome> {
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
+  final MyChromeSafariBrowser _chromeSafariBrowser = MyChromeSafariBrowser();
   
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
@@ -334,6 +335,7 @@ class _DriverHomeState extends State<DriverHome> {
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _linkSubscription?.cancel();
+    _chromeSafariBrowser.close().catchError((_) {});
     _globalAudioPlayer?.dispose();
     super.dispose();
   }
@@ -363,6 +365,12 @@ class _DriverHomeState extends State<DriverHome> {
   void _handleDeepLink(Uri uri) {
     // التحقق من المخطط والـ host لروابط التوثيق
     if ((uri.scheme == 'tracka' || uri.scheme == 'zoona') && uri.host == 'auth-callback') {
+      try {
+        // إغلاق Custom Tabs تلقائياً عند استقبال الـ Deep Link ليعود المستخدم للتطبيق فوراً
+        _chromeSafariBrowser.close().catchError((_) {});
+      } catch (e) {
+        print('⚠️ [OAuth] فشل إغلاق الـ Chrome Safari Browser: $e');
+      }
       try {
         // إغلاق Custom Tabs تلقائياً عن طريق استدعاء closeInAppWebView (إذا كان مدعوماً) أو مجرد إتمام التوجيه
         closeInAppWebView().catchError((_) {});
@@ -1007,9 +1015,19 @@ class _DriverHomeState extends State<DriverHome> {
               if (urlString.contains('accounts.google.com') || urlString.contains('supabase.co/auth')) {
                 try {
                   print('🌐 [OAuth] اعتراض رابط التوثيق وفتحه في Chrome Custom Tabs: $urlString');
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  await _chromeSafariBrowser.open(
+                    url: WebUri(urlString),
+                    settings: ChromeSafariBrowserSettings(
+                      shareState: CustomTabsShareState.SHARE_STATE_OFF,
+                      isSingleInstance: true,
+                    ),
+                  );
                 } catch (e) {
-                  print('❌ [OAuth] خطأ في فتح رابط التوثيق: $e');
+                  print('❌ [OAuth] خطأ في فتح رابط التوثيق عبر ChromeSafariBrowser: $e');
+                  // fallback in case of any issues
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (_) {}
                 }
                 return NavigationActionPolicy.CANCEL;
               }
@@ -1034,5 +1052,17 @@ class _DriverHomeState extends State<DriverHome> {
         if (res != null && res != 'null' && res != driverId) _saveDriver(res);
       } catch (_) {}
     });
+  }
+}
+
+class MyChromeSafariBrowser extends ChromeSafariBrowser {
+  @override
+  void onOpened() {
+    print("🌐 [OAuth] Chrome Custom Tab opened");
+  }
+
+  @override
+  void onClosed() {
+    print("🌐 [OAuth] Chrome Custom Tab closed");
   }
 }
