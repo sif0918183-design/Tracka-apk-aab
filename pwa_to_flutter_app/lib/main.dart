@@ -18,26 +18,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:app_links/app_links.dart';
 
-// ✅ Global Navigator Key for Overlay
+// Global Navigator Key for Overlay
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // أنواع إشعارات منصة السفر (الهادئة)
 const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 
-// ✅ نوع إشعار الرحلة الفورية (الطوارئ)
+// نوع إشعار الرحلة الفورية (الطوارئ)
 const String _rideRequestType = 'RIDE_REQUEST';
 
-// ✅ معرف القناة الثابت
+// معرف القناة الثابت
 const String _emergencyChannelId = 'emergency_channel_v11';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
-// ✅ متغيرات عالمية للصوت والاهتزاز
+// متغيرات عالمية للصوت والاهتزاز
 AudioPlayer? _globalAudioPlayer;
 Timer? _globalAlertTimer;
 bool _globalIsAlertPlaying = false;
 
-// ✅ مدة الرنين بالثواني
+// مدة الرنين بالثواني
 const int _alertDurationSeconds = 30;
 
 String? _extractRideId(Map<String, dynamic> data) {
@@ -66,7 +67,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ دالة إيقاف الصوت والاهتزاز
+// دالة إيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
   print('🔇 [GLOBAL] إيقاف الصوت والاهتزاز...');
   
@@ -99,7 +100,7 @@ void stopGlobalAlertSound() {
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز');
 }
 
-// ✅ دالة تشغيل الصوت في الخلفية
+// دالة تشغيل الصوت في الخلفية
 void _playAlertSoundInBackground() {
   _globalIsAlertPlaying = true;
   _vibratePhoneBackground();
@@ -131,7 +132,7 @@ void _playAlertSoundInBackground() {
     } catch (_) {}
   }
   
-  // ✅ إيقاف تلقائي بعد 30 ثانية
+  // إيقاف تلقائي بعد 30 ثانية
   Future.delayed(Duration(seconds: _alertDurationSeconds), () {
     print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
     stopGlobalAlertSound();
@@ -309,8 +310,11 @@ class _DriverHomeState extends State<DriverHome> {
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  final MyChromeSafariBrowser _chromeSafariBrowser = MyChromeSafariBrowser();
   
-  // ✅ Overlay entry for persistent modal
+  // Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
 
   @override
@@ -320,6 +324,7 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    _initDeepLinks();
   }
 
   @override
@@ -329,8 +334,81 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry = null;
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
+    _linkSubscription?.cancel();
+    _chromeSafariBrowser.close().catchError((_) {});
     _globalAudioPlayer?.dispose();
     super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // التقاط الرابط الأولي عند فتح التطبيق (إذا تم تشغيله عبر رابط عميق)
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleDeepLink(initialUri);
+      }
+    } catch (e) {
+      print('❌ [DeepLink] خطأ في جلب الرابط الأولي: $e');
+    }
+
+    // الاستماع للروابط العميقة الواردة أثناء عمل التطبيق
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      print('🌐 [DeepLink] تم التقاط رابط عميق جديد: $uri');
+      _handleDeepLink(uri);
+    }, onError: (err) {
+      print('❌ [DeepLink] خطأ في دفق الروابط العميقة: $err');
+    });
+  }
+
+  void _handleDeepLink(Uri uri) {
+    // التحقق من المخطط والـ host لروابط التوثيق
+    if ((uri.scheme == 'tracka' || uri.scheme == 'zoona') && uri.host == 'auth-callback') {
+      try {
+        // إغلاق Custom Tabs تلقائياً عند استقبال الـ Deep Link ليعود المستخدم للتطبيق فوراً
+        _chromeSafariBrowser.close().catchError((_) {});
+      } catch (e) {
+        print('⚠️ [OAuth] فشل إغلاق الـ Chrome Safari Browser: $e');
+      }
+
+      // استخراج كامل الـ Fragment/Hash أو الـ Query دون أي نقصان
+      String hash = '';
+      if (uri.hasFragment && uri.fragment.isNotEmpty) {
+        hash = '#${uri.fragment}';
+      } else if (uri.query.isNotEmpty) {
+        hash = '#${uri.query}';
+      }
+
+      final String webRedirectUrl = 'https://tracka.zoonasd.com/passenger_app/index.html$hash';
+      print('🚀 [DeepLink] تحويل المستخدم لصفحة الـ PWA مع الـ Hash: $webRedirectUrl');
+
+      if (web != null) {
+        // أولاً: تحميل الرابط الكامل عبر الـ WebView
+        web!.loadUrl(urlRequest: URLRequest(url: WebUri(webRedirectUrl)));
+
+        // ثانياً: حقن مباشر للجافاسكربت لتفعيل الـ Hash واختبار جلسة Supabase فوراً
+        if (hash.isNotEmpty) {
+          final String rawHash = hash.replaceFirst('#', '');
+          web!.evaluateJavascript(source: '''
+            (function() {
+              window.location.hash = "$rawHash";
+              if (typeof checkAndSetOAuthSession === 'function') {
+                checkAndSetOAuthSession();
+              } else if (typeof window.checkAndSetOAuthSession === 'function') {
+                window.checkAndSetOAuthSession();
+              } else {
+                window.location.reload();
+              }
+            })();
+          ''');
+        }
+      } else {
+        setState(() {
+          _pendingUrl = webRedirectUrl;
+        });
+      }
+    }
   }
 
   Future<void> _initNotifications() async {
@@ -348,7 +426,7 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة
+      // حذف القنوات القديمة
       for (int i = 10; i <= 20; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
@@ -364,7 +442,7 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
+      // إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -377,7 +455,7 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
+      // قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -594,7 +672,7 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت لمدة 30 ثانية فقط
+  // تشغيل الصوت لمدة 30 ثانية فقط
   void _playAlertSound() {
     stopGlobalAlertSound();
     _globalIsAlertPlaying = true;
@@ -628,7 +706,7 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (_) {}
     }
 
-    // ✅ إيقاف تلقائي بعد 30 ثانية
+    // إيقاف تلقائي بعد 30 ثانية
     Future.delayed(const Duration(seconds: _alertDurationSeconds), () {
       print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
       stopGlobalAlertSound();
@@ -944,7 +1022,29 @@ class _DriverHomeState extends State<DriverHome> {
             },
             shouldOverrideUrlLoading: (controller, nav) async {
               final uri = nav.request.url!;
-              if (['whatsapp', 'tel', 'sms', 'mailto'].contains(uri.scheme) || uri.toString().contains('wa.me')) {
+              final urlString = uri.toString();
+
+              // اعتراض روابط التوثيق الخاصة بـ Google OAuth أو Supabase Auth لفتحها في Chrome Custom Tabs
+              if (urlString.contains('accounts.google.com') || urlString.contains('supabase.co/auth')) {
+                try {
+                  print('🌐 [OAuth] اعتراض رابط التوثيق وفتحه في Chrome Custom Tabs: $urlString');
+                  await _chromeSafariBrowser.open(
+                    url: WebUri(urlString),
+                    settings: ChromeSafariBrowserSettings(
+                      shareState: CustomTabsShareState.SHARE_STATE_OFF,
+                      isSingleInstance: true,
+                    ),
+                  );
+                } catch (e) {
+                  print('❌ [OAuth] خطأ في فتح رابط التوثيق عبر ChromeSafariBrowser: $e');
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (_) {}
+                }
+                return NavigationActionPolicy.CANCEL;
+              }
+
+              if (['whatsapp', 'tel', 'sms', 'mailto'].contains(uri.scheme) || urlString.contains('wa.me')) {
                 try { await launchUrl(uri, mode: LaunchMode.externalApplication); } catch (_) {}
                 return NavigationActionPolicy.CANCEL;
               }
@@ -964,5 +1064,17 @@ class _DriverHomeState extends State<DriverHome> {
         if (res != null && res != 'null' && res != driverId) _saveDriver(res);
       } catch (_) {}
     });
+  }
+}
+
+class MyChromeSafariBrowser extends ChromeSafariBrowser {
+  @override
+  void onOpened() {
+    print("🌐 [OAuth] Chrome Custom Tab opened");
+  }
+
+  @override
+  void onClosed() {
+    print("🌐 [OAuth] Chrome Custom Tab closed");
   }
 }

@@ -46,6 +46,9 @@
         </intent>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
     </queries>
 
     <application
@@ -87,6 +90,15 @@
                 <data android:scheme="https"
                       android:host="tracka.zoonasd.com"
                       android:pathPrefix="/driver_app/accept-ride.html" />
+            </intent-filter>
+
+            <!-- ✅ Deep Links لتوثيق Google OAuth -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tracka" android:host="auth-callback" />
+                <data android:scheme="zoona" android:host="auth-callback" />
             </intent-filter>
 
         </activity>
