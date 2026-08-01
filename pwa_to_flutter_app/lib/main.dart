@@ -320,7 +320,7 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
-    
+
     // ✅ التحقق من صحة التوكن بعد 5 ثوانٍ من بدء التطبيق
     Future.delayed(const Duration(seconds: 5), () {
       _verifyAndRefreshTokenIfNeeded();
@@ -342,27 +342,27 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _verifyAndRefreshTokenIfNeeded() async {
     try {
       print('🔐 [VERIFY] بدء التحقق من صحة التوكن...');
-      
+
       // 1. الحصول على التوكن الحالي من Firebase
       final String? currentToken = await FirebaseMessaging.instance.getToken();
-      
+
       if (currentToken == null || currentToken.isEmpty) {
         print('⚠️ [VERIFY] لا يوجد توكن FCM');
         return;
       }
-      
-      print('📱 [VERIFY] التوكن الحالي: ${currentToken.substring(0, 20)}...');
-      
+
+      print('📱 [VERIFY] التوكن الحالي: ${currentToken.substring(0, currentToken.length > 20 ? 20 : currentToken.length)}...');
+
       // 2. التحقق من وجود driverId
       if (driverId == null) {
         print('⚠️ [VERIFY] لا يوجد driverId، تأجيل التحقق');
         return;
       }
-      
+
       // 3. جلب التوكن المخزن في قاعدة البيانات
       final prefs = await SharedPreferences.getInstance();
       final savedToken = prefs.getString('fcm_token');
-      
+
       // 4. إذا كان التوكن المخزن مختلفاً عن التوكن الحالي، قم بتحديثه
       if (savedToken != currentToken) {
         print('🔄 [VERIFY] التوكن مختلف، جاري التحديث...');
@@ -372,7 +372,7 @@ class _DriverHomeState extends State<DriverHome> {
       } else {
         print('✅ [VERIFY] التوكن متطابق مع المخزن');
       }
-      
+
       // 5. التحقق من صحة التوكن عبر Supabase RPC (إذا كانت متوفرة)
       try {
         final response = await supabase.rpc(
@@ -382,7 +382,7 @@ class _DriverHomeState extends State<DriverHome> {
             'p_fcm_token': currentToken,
           },
         );
-        
+
         if (response == true) {
           print('✅ [VERIFY] التوكن صالح في Supabase');
         } else {
@@ -393,7 +393,7 @@ class _DriverHomeState extends State<DriverHome> {
         // إذا لم تكن دالة RPC موجودة، نكتفي بتحديث التوكن مباشرة
         print('ℹ️ [VERIFY] دالة verify_driver_token غير موجودة، تخطي');
       }
-      
+
     } catch (e) {
       print('❌ [VERIFY] خطأ في التحقق من التوكن: $e');
     }
@@ -474,20 +474,20 @@ class _DriverHomeState extends State<DriverHome> {
         }
       }
     }
-    
+
     if (driverId == null) {
       print('⚠️ [UPDATE] لا يوجد driverId لتحديث التوكن');
       return;
     }
-    
+
     if (token == null || token.isEmpty || token == 'null' || token == 'false') {
       print('⚠️ [UPDATE] توكن غير صالح للتحديث');
       return;
     }
-    
+
     try {
       print('🔄 [UPDATE] تحديث التوكن للسائق $driverId');
-      
+
       final response = await supabase.rpc(
         'update_driver_fcm_token',
         params: {
@@ -498,14 +498,14 @@ class _DriverHomeState extends State<DriverHome> {
       
       if (response == true) {
         print('✅ [UPDATE] تم تحديث التوكن بنجاح في قاعدة البيانات');
-        
+
         // ✅ حفظ التوكن في SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('fcm_token', token);
-        
+
         // ✅ تحديث المتغير المحلي
         fcmToken = token;
-        
+
       } else {
         print('❌ [UPDATE] فشل تحديث التوكن');
       }
@@ -525,25 +525,26 @@ class _DriverHomeState extends State<DriverHome> {
     );
     
     fcmToken = await messaging.getToken();
-    if (fcmToken != null && fcmToken.isNotEmpty) {
-      _sendTokenToPWA(fcmToken!);
-      await _updateTokenInDrivers(fcmToken!);
+    final token = fcmToken;
+    if (token != null && token.isNotEmpty) {
+      _sendTokenToPWA(token);
+      await _updateTokenInDrivers(token);
     }
-    
+
     messaging.onTokenRefresh.listen((newToken) async { 
       print('🔄 [REFRESH] تم تحديث التوكن من Firebase');
       fcmToken = newToken; 
       _sendTokenToPWA(newToken);
       await _updateTokenInDrivers(newToken);
     });
-    
+
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       stopGlobalAlertSound();
       _overlayEntry?.remove();
       _overlayEntry = null;
       _handleNotificationClick(message.data);
     });
-    
+
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
         stopGlobalAlertSound();
@@ -1023,12 +1024,12 @@ class _DriverHomeState extends State<DriverHome> {
               
               // ✅ ✅ ✅ Handler للحصول على التوكن من PWA
               controller.addJavaScriptHandler(
-                handlerName: 'getFCMToken', 
-                callback: (args) async { 
+                handlerName: 'getFCMToken',
+                callback: (args) async {
                   print('📱 طلب توكن FCM من PWA');
                   try {
                     final token = await FirebaseMessaging.instance.getToken();
-                    print('✅ تم إرجاع التوكن: ${token?.substring(0, 20)}...');
+                    print('✅ تم إرجاع التوكن: ${token?.substring(0, token.length > 20 ? 20 : token.length)}...');
                     return token ?? '';
                   } catch (e) {
                     print('❌ خطأ في الحصول على التوكن: $e');
@@ -1036,7 +1037,7 @@ class _DriverHomeState extends State<DriverHome> {
                   }
                 }
               );
-              
+
               // ✅ Handler لتسجيل الدخول
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
