@@ -393,6 +393,19 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _updateTokenInDrivers(String token) async {
+    if (driverId == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final savedId = prefs.getString('driver_id');
+      if (savedId != null) {
+        if (mounted) {
+          setState(() {
+            driverId = savedId;
+          });
+        } else {
+          driverId = savedId;
+        }
+      }
+    }
     if (driverId == null) return;
     try {
       final response = await supabase.rpc(
@@ -536,6 +549,9 @@ class _DriverHomeState extends State<DriverHome> {
       _listenForRides(); 
       _startStatusSyncWithPWA(); 
       _startForegroundService(); 
+      if (fcmToken != null) {
+        await _updateTokenInDrivers(fcmToken!);
+      }
     }
   }
 
