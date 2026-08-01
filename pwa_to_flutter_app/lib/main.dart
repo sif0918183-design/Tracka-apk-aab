@@ -66,15 +66,6 @@ Future<bool> _isDuplicateRide(String? rideId) async {
   return false;
 }
 
-// ✅ دالة لتنظيف السلاسل النصية المسترجعة من الـ JavaScript
-String _cleanJsString(String s) {
-  String trimmed = s.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.substring(1, trimmed.length - 1).trim();
-  }
-  return trimmed;
-}
-
 // ✅ دالة إيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
   print('🔇 [GLOBAL] إيقاف الصوت والاهتزاز...');
@@ -329,6 +320,11 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    
+    // ✅ التحقق من صحة التوكن بعد 5 ثوانٍ من بدء التطبيق
+    Future.delayed(const Duration(seconds: 5), () {
+      _verifyAndRefreshTokenIfNeeded();
+    });
   }
 
   @override
@@ -340,6 +336,67 @@ class _DriverHomeState extends State<DriverHome> {
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
     super.dispose();
+  }
+
+  // ✅ ✅ ✅ دالة جديدة للتحقق من صحة التوكن وتحديثه إذا لزم الأمر
+  Future<void> _verifyAndRefreshTokenIfNeeded() async {
+    try {
+      print('🔐 [VERIFY] بدء التحقق من صحة التوكن...');
+      
+      // 1. الحصول على التوكن الحالي من Firebase
+      final String? currentToken = await FirebaseMessaging.instance.getToken();
+      
+      if (currentToken == null || currentToken.isEmpty) {
+        print('⚠️ [VERIFY] لا يوجد توكن FCM');
+        return;
+      }
+      
+      print('📱 [VERIFY] التوكن الحالي: ${currentToken.substring(0, 20)}...');
+      
+      // 2. التحقق من وجود driverId
+      if (driverId == null) {
+        print('⚠️ [VERIFY] لا يوجد driverId، تأجيل التحقق');
+        return;
+      }
+      
+      // 3. جلب التوكن المخزن في قاعدة البيانات
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString('fcm_token');
+      
+      // 4. إذا كان التوكن المخزن مختلفاً عن التوكن الحالي، قم بتحديثه
+      if (savedToken != currentToken) {
+        print('🔄 [VERIFY] التوكن مختلف، جاري التحديث...');
+        await _updateTokenInDrivers(currentToken);
+        await prefs.setString('fcm_token', currentToken);
+        print('✅ [VERIFY] تم تحديث التوكن في قاعدة البيانات');
+      } else {
+        print('✅ [VERIFY] التوكن متطابق مع المخزن');
+      }
+      
+      // 5. التحقق من صحة التوكن عبر Supabase RPC (إذا كانت متوفرة)
+      try {
+        final response = await supabase.rpc(
+          'verify_driver_token',
+          params: {
+            'p_driver_id': driverId,
+            'p_fcm_token': currentToken,
+          },
+        );
+        
+        if (response == true) {
+          print('✅ [VERIFY] التوكن صالح في Supabase');
+        } else {
+          print('⚠️ [VERIFY] التوكن غير صالح في Supabase، إعادة التحديث...');
+          await _updateTokenInDrivers(currentToken);
+        }
+      } catch (rpcError) {
+        // إذا لم تكن دالة RPC موجودة، نكتفي بتحديث التوكن مباشرة
+        print('ℹ️ [VERIFY] دالة verify_driver_token غير موجودة، تخطي');
+      }
+      
+    } catch (e) {
+      print('❌ [VERIFY] خطأ في التحقق من التوكن: $e');
+    }
   }
 
   Future<void> _initNotifications() async {
@@ -401,7 +458,9 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ ✅ ✅ دالة محسنة لتحديث التوكن
   Future<void> _updateTokenInDrivers(String token) async {
+    // التحقق من وجود driverId
     if (driverId == null) {
       final prefs = await SharedPreferences.getInstance();
       final savedId = prefs.getString('driver_id');
@@ -415,12 +474,20 @@ class _DriverHomeState extends State<DriverHome> {
         }
       }
     }
-    if (driverId == null) return;
-
-    print('🔄 [FCM] Updating token in Supabase for driver $driverId...');
-
-    // 1. Try updating via RPC (original method)
+    
+    if (driverId == null) {
+      print('⚠️ [UPDATE] لا يوجد driverId لتحديث التوكن');
+      return;
+    }
+    
+    if (token == null || token.isEmpty || token == 'null' || token == 'false') {
+      print('⚠️ [UPDATE] توكن غير صالح للتحديث');
+      return;
+    }
+    
     try {
+      print('🔄 [UPDATE] تحديث التوكن للسائق $driverId');
+      
       final response = await supabase.rpc(
         'update_driver_fcm_token',
         params: {
@@ -428,79 +495,67 @@ class _DriverHomeState extends State<DriverHome> {
           'p_fcm_token': token,
         },
       );
-      print('✅ [FCM] RPC update response: $response');
+      
+      if (response == true) {
+        print('✅ [UPDATE] تم تحديث التوكن بنجاح في قاعدة البيانات');
+        
+        // ✅ حفظ التوكن في SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcm_token', token);
+        
+        // ✅ تحديث المتغير المحلي
+        fcmToken = token;
+        
+      } else {
+        print('❌ [UPDATE] فشل تحديث التوكن');
+      }
     } catch (e) {
-      print('⚠️ [FCM] RPC update failed: $e');
-    }
-
-    // 2. Try direct table updates as robust fallbacks
-    try {
-      await supabase.from('drivers').update({'fcm_token': token}).eq('id', driverId!);
-      print('✅ [FCM] Direct drivers table update succeeded');
-    } catch (e) {
-      print('ℹ️ [FCM] Direct drivers table update skipped/failed: $e');
-    }
-
-    try {
-      await supabase.from('driver_locations').update({'fcm_token': token}).eq('driver_id', driverId!);
-      print('✅ [FCM] Direct driver_locations table update succeeded');
-    } catch (e) {
-      print('ℹ️ [FCM] Direct driver_locations table update skipped/failed: $e');
-    }
-
-    try {
-      await supabase.from('profiles').update({'fcm_token': token}).eq('id', driverId!);
-      print('✅ [FCM] Direct profiles table update succeeded');
-    } catch (e) {
-      print('ℹ️ [FCM] Direct profiles table update skipped/failed: $e');
+      print('❌ [UPDATE] خطأ في تحديث التوكن: $e');
     }
   }
 
   Future<void> _initFirebaseMessaging() async {
-    try {
-      FirebaseMessaging messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert: true, badge: true, sound: true);
-
-      await messaging.setForegroundNotificationPresentationOptions(
-        alert: false,
-        badge: false,
-        sound: false,
-      );
-
-      fcmToken = await messaging.getToken();
-      print('📱 [FCM] Retrieved token: $fcmToken');
-
-      if (fcmToken != null) {
-        _sendTokenToPWA(fcmToken!);
-        await _updateTokenInDrivers(fcmToken!);
-      }
-      messaging.onTokenRefresh.listen((newToken) async {
-        fcmToken = newToken;
-        print('📱 [FCM] Token refreshed: $newToken');
-        _sendTokenToPWA(newToken);
-        await _updateTokenInDrivers(newToken);
-      });
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
+    
+    fcmToken = await messaging.getToken();
+    if (fcmToken != null && fcmToken.isNotEmpty) {
+      _sendTokenToPWA(fcmToken!);
+      await _updateTokenInDrivers(fcmToken!);
+    }
+    
+    messaging.onTokenRefresh.listen((newToken) async { 
+      print('🔄 [REFRESH] تم تحديث التوكن من Firebase');
+      fcmToken = newToken; 
+      _sendTokenToPWA(newToken);
+      await _updateTokenInDrivers(newToken);
+    });
+    
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      stopGlobalAlertSound();
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+      _handleNotificationClick(message.data);
+    });
+    
+    messaging.getInitialMessage().then((message) { 
+      if (message != null) {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        _handleNotificationClick(message.data);
-      });
-      messaging.getInitialMessage().then((message) {
-        if (message != null) {
-          stopGlobalAlertSound();
-          _overlayEntry?.remove();
-          _overlayEntry = null;
-          _handleNotificationClick(message.data);
-        }
-      });
-
-      FirebaseMessaging.onMessage.listen((message) {
-        _handleFcmMessage(message);
-      });
-    } catch (e) {
-      print('❌ [FCM] Error during Firebase Messaging initialization: $e');
-    }
+        _handleNotificationClick(message.data); 
+      }
+    });
+    
+    FirebaseMessaging.onMessage.listen((message) {
+      _handleFcmMessage(message);
+    });
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
@@ -586,7 +641,7 @@ class _DriverHomeState extends State<DriverHome> {
       _listenForRides(); 
       _startStatusSyncWithPWA(); 
       _startForegroundService(); 
-      if (fcmToken != null) {
+      if (fcmToken != null && fcmToken!.isNotEmpty) {
         await _updateTokenInDrivers(fcmToken!);
       }
     }
@@ -597,7 +652,7 @@ class _DriverHomeState extends State<DriverHome> {
     await prefs.setString('driver_id', id);
     driverId = id;
     
-    if (fcmToken != null) {
+    if (fcmToken != null && fcmToken!.isNotEmpty) {
       await _updateTokenInDrivers(fcmToken!);
     }
     
@@ -946,6 +1001,7 @@ class _DriverHomeState extends State<DriverHome> {
             onWebViewCreated: (controller) {
               web = controller;
               
+              // ✅ Handler لإيقاف التنبيهات من PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
@@ -955,6 +1011,7 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
+              // ✅ Handler لإيقاف التنبيهات
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
@@ -964,6 +1021,23 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
+              // ✅ ✅ ✅ Handler للحصول على التوكن من PWA
+              controller.addJavaScriptHandler(
+                handlerName: 'getFCMToken', 
+                callback: (args) async { 
+                  print('📱 طلب توكن FCM من PWA');
+                  try {
+                    final token = await FirebaseMessaging.instance.getToken();
+                    print('✅ تم إرجاع التوكن: ${token?.substring(0, 20)}...');
+                    return token ?? '';
+                  } catch (e) {
+                    print('❌ خطأ في الحصول على التوكن: $e');
+                    return '';
+                  }
+                }
+              );
+              
+              // ✅ Handler لتسجيل الدخول
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
@@ -992,9 +1066,8 @@ class _DriverHomeState extends State<DriverHome> {
                   _stopAlerts();
                 }
               }
-              if (fcmToken != null) {
+              if (fcmToken != null && fcmToken!.isNotEmpty) {
                 _sendTokenToPWA(fcmToken!);
-                await _updateTokenInDrivers(fcmToken!);
               }
               _startDriverSync();
             },
@@ -1017,12 +1090,7 @@ class _DriverHomeState extends State<DriverHome> {
       if (web == null) return;
       try {
         final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
-        if (res != null) {
-          String cleaned = _cleanJsString(res.toString());
-          if (cleaned != 'null' && cleaned.isNotEmpty && cleaned != driverId) {
-            _saveDriver(cleaned);
-          }
-        }
+        if (res != null && res != 'null' && res != driverId) _saveDriver(res);
       } catch (_) {}
     });
   }
