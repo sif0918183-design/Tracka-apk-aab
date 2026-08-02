@@ -347,7 +347,7 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _sendTokenToPWAIfAvailable() async {
     try {
       // الحصول على التوكن الحالي
-      final token = await FirebaseMessaging.instance.getToken();
+      final String? token = await FirebaseMessaging.instance.getToken();
       if (token != null && token.isNotEmpty) {
         print('📱 [PWA] إرسال التوكن إلى PWA: ${token.substring(0, 20)}...');
         
@@ -395,7 +395,7 @@ class _DriverHomeState extends State<DriverHome> {
       
       // 3. جلب التوكن المخزن في قاعدة البيانات
       final prefs = await SharedPreferences.getInstance();
-      final savedToken = prefs.getString('fcm_token');
+      final String? savedToken = prefs.getString('fcm_token');
       
       // 4. إذا كان التوكن المخزن مختلفاً عن التوكن الحالي، قم بتحديثه
       if (savedToken != currentToken) {
@@ -476,7 +476,7 @@ class _DriverHomeState extends State<DriverHome> {
     // التحقق من وجود driverId
     if (driverId == null) {
       final prefs = await SharedPreferences.getInstance();
-      final savedId = prefs.getString('driver_id');
+      final String? savedId = prefs.getString('driver_id');
       if (savedId != null) {
         if (mounted) {
           setState(() {
@@ -537,17 +537,32 @@ class _DriverHomeState extends State<DriverHome> {
       sound: false,
     );
     
-    fcmToken = await messaging.getToken();
-    if (fcmToken != null && fcmToken!.isNotEmpty) {
-      _sendTokenToPWA(fcmToken!);
-      await _updateTokenInDrivers(fcmToken!);
+    final String? token = await messaging.getToken();
+    if (token != null && token.isNotEmpty) {
+      fcmToken = token;
+      _sendTokenToPWA(token);
+      await _updateTokenInDrivers(token);
+      
+      // ✅ إرسال التوكن إلى PWA عبر localStorage فوراً
+      if (web != null && _isPageLoaded) {
+        await web!.evaluateJavascript(
+          source: "localStorage.setItem('fcm_token', '$token');"
+        );
+      }
     }
     
-    messaging.onTokenRefresh.listen((newToken) async { 
+    messaging.onTokenRefresh.listen((String newToken) async { 
       print('🔄 [REFRESH] تم تحديث التوكن من Firebase');
       fcmToken = newToken; 
       _sendTokenToPWA(newToken);
       await _updateTokenInDrivers(newToken);
+      
+      // ✅ إرسال التوكن الجديد إلى PWA
+      if (web != null && _isPageLoaded) {
+        await web!.evaluateJavascript(
+          source: "localStorage.setItem('fcm_token', '$newToken');"
+        );
+      }
     });
     
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -665,8 +680,21 @@ class _DriverHomeState extends State<DriverHome> {
     await prefs.setString('driver_id', id);
     driverId = id;
     
-    if (fcmToken != null && fcmToken!.isNotEmpty) {
-      await _updateTokenInDrivers(fcmToken!);
+    // ✅ بعد تسجيل الدخول، احصل على التوكن وأرسله
+    final String? token = await FirebaseMessaging.instance.getToken();
+    if (token != null && token.isNotEmpty) {
+      fcmToken = token;
+      await _updateTokenInDrivers(token);
+      
+      // ✅ إرسال التوكن إلى PWA
+      if (web != null && _isPageLoaded) {
+        await web!.evaluateJavascript(
+          source: "localStorage.setItem('fcm_token', '$token');"
+        );
+        await web!.evaluateJavascript(
+          source: "if(typeof window.setFCMToken === 'function') window.setFCMToken('$token');"
+        );
+      }
     }
     
     _listenForRides();
@@ -1045,7 +1073,7 @@ class _DriverHomeState extends State<DriverHome> {
                 callback: (args) async { 
                   print('📱 طلب توكن FCM من PWA');
                   try {
-                    final token = await FirebaseMessaging.instance.getToken();
+                    final String? token = await FirebaseMessaging.instance.getToken();
                     print('✅ تم إرجاع التوكن: ${token?.substring(0, 20)}...');
                     return token ?? '';
                   } catch (e) {
