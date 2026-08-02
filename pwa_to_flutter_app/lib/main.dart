@@ -392,81 +392,177 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ دالة التحقق من صلاحية التوكن وتحديثه إذا لزم الأمر
+  Future<String?> _validateAndRefreshToken(String? currentToken) async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      
+      // إذا كان التوكن موجوداً، نتحقق من صلاحيته
+      if (currentToken != null) {
+        try {
+          // محاولة إرسال رسالة اختبارية للتحقق من صلاحية التوكن
+          // أو يمكننا استخدام طريقة التحقق من التوكن عبر Firebase
+          // نستخدم getToken() للحصول على توكن جديد ومقارنته
+          final newToken = await messaging.getToken();
+          
+          if (newToken == currentToken) {
+            print('✅ التوكن صالح ولا يحتاج إلى تحديث');
+            return currentToken;
+          } else {
+            print('🔄 التوكن غير صالح - سيتم تحديثه');
+            return newToken;
+          }
+        } catch (e) {
+          print('⚠️ فشل التحقق من صلاحية التوكن: $e');
+          // في حالة الفشل، نحاول الحصول على توكن جديد
+          return await messaging.getToken();
+        }
+      } else {
+        // إذا لم يكن هناك توكن، نحصل على واحد جديد
+        print('📱 لا يوجد توكن سابق - جاري الحصول على توكن جديد');
+        return await messaging.getToken();
+      }
+    } catch (e) {
+      print('❌ خطأ في التحقق من صلاحية التوكن: $e');
+      return null;
+    }
+  }
+
+  // ✅ دالة حفظ التوكن في localStorage
+  Future<void> _saveTokenToLocalStorage(String token) async {
+    if (web != null && _isPageLoaded) {
+      try {
+        // حفظ التوكن في localStorage باستخدام JavaScript
+        await web!.evaluateJavascript(source: """
+          localStorage.setItem('fcm_token', '$token');
+          console.log('✅ تم حفظ FCM Token في localStorage: $token');
+          
+          // إذا كانت هناك دالة في PWA للاستماع لتغيير التوكن
+          if (typeof window.onFCMTokenUpdated === 'function') {
+            window.onFCMTokenUpdated('$token');
+          }
+        """);
+        print('✅ تم حفظ التوكن في localStorage');
+      } catch (e) {
+        print('⚠️ فشل حفظ التوكن في localStorage: $e');
+      }
+    } else {
+      // إذا لم يكن الـ WebView جاهزاً، نخزن التوكن مؤقتاً لحفظه لاحقاً
+      print('⏳ WebView غير جاهز، سيتم حفظ التوكن لاحقاً');
+    }
+  }
+
+  // ✅ دالة قراءة التوكن من localStorage (للتأكد)
+  Future<String?> _getTokenFromLocalStorage() async {
+    if (web != null && _isPageLoaded) {
+      try {
+        final token = await web!.evaluateJavascript(source: "localStorage.getItem('fcm_token')");
+        if (token != null && token != 'null' && token.toString().isNotEmpty) {
+          print('📖 قراءة التوكن من localStorage: $token');
+          return token.toString();
+        }
+      } catch (e) {
+        print('⚠️ فشل قراءة التوكن من localStorage: $e');
+      }
+    }
+    return null;
+  }
+
   Future<void> _updateTokenInDrivers(String token) async {
     if (driverId == null) return;
     try {
-      // ✅ جلب التوكن الحالي من جدول drivers للتحقق منه أولاً
-      final driverData = await supabase
-          .from('drivers')
-          .select('fcm_token')
-          .eq('id', driverId!)
-          .maybeSingle();
-
-      final String? dbToken = driverData?['fcm_token']?.toString();
-
-      // ✅ إذا كان التوكن فارغاً أو غير مطابق لتوكن Firebase الحالي، نقوم بتحديثه
-      if (dbToken == null || dbToken.isEmpty || dbToken != token) {
-        final response = await supabase.rpc(
-          'update_driver_fcm_token',
-          params: {
-            'p_driver_id': driverId,
-            'p_fcm_token': token,
-          },
-        );
-        
-        if (response == true) {
-          print('✅ Token updated and verified successfully via RPC');
-        } else {
-          // محاولة تحديث مباشر في حال فشل أو عدم توفر دالة RPC مطابقة
-          await supabase.from('drivers').update({'fcm_token': token}).eq('id', driverId!);
-          print('✅ Token updated directly in drivers table');
-        }
+      final response = await supabase.rpc(
+        'update_driver_fcm_token',
+        params: {
+          'p_driver_id': driverId,
+          'p_fcm_token': token,
+        },
+      );
+      
+      if (response == true) {
+        print('✅ Token updated successfully via RPC');
       } else {
-        print('ℹ️ Token in drivers table is already up to date and valid.');
+        print('❌ Failed to update token via RPC');
       }
     } catch (e) {
-      print('❌ Error checking/updating token in drivers: $e');
+      print('❌ Error updating token via RPC: $e');
     }
   }
 
   Future<void> _initFirebaseMessaging() async {
-    FirebaseMessaging messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
-    
-    await messaging.setForegroundNotificationPresentationOptions(
-      alert: false,
-      badge: false,
-      sound: false,
-    );
-    
-    fcmToken = await messaging.getToken();
-    if (fcmToken != null) {
-      _sendTokenToPWA(fcmToken!);
-      await _updateTokenInDrivers(fcmToken!);
-    }
-    messaging.onTokenRefresh.listen((newToken) async { 
-      fcmToken = newToken; 
-      _sendTokenToPWA(newToken);
-      await _updateTokenInDrivers(newToken);
-    });
-    FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      stopGlobalAlertSound();
-      _overlayEntry?.remove();
-      _overlayEntry = null;
-      _handleNotificationClick(message.data);
-    });
-    messaging.getInitialMessage().then((message) { 
-      if (message != null) {
+    try {
+      FirebaseMessaging messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: false,
+        badge: false,
+        sound: false,
+      );
+      
+      // ✅ التحقق من صحة التوكن والحصول عليه
+      String? newToken = await _validateAndRefreshToken(null);
+      
+      if (newToken != null && newToken.isNotEmpty) {
+        fcmToken = newToken;
+        
+        // ✅ حفظ التوكن في localStorage
+        await _saveTokenToLocalStorage(newToken);
+        
+        // ✅ إرسال التوكن إلى الخادم
+        await _updateTokenInDrivers(newToken);
+        
+        // ✅ إرسال التوكن إلى PWA إذا كان جاهزاً
+        _sendTokenToPWA(newToken);
+      } else {
+        print('❌ فشل الحصول على توكن صالح');
+      }
+      
+      // ✅ الاستماع لتحديثات التوكن
+      messaging.onTokenRefresh.listen((newToken) async { 
+        print('🔄 تم تحديث التوكن بواسطة Firebase');
+        fcmToken = newToken;
+        
+        // ✅ التحقق من صحة التوكن الجديد
+        String? validatedToken = await _validateAndRefreshToken(newToken);
+        if (validatedToken != null && validatedToken.isNotEmpty) {
+          fcmToken = validatedToken;
+          
+          // ✅ حفظ التوكن الجديد في localStorage
+          await _saveTokenToLocalStorage(validatedToken);
+          
+          // ✅ إرسال التوكن الجديد إلى الخادم و PWA
+          await _updateTokenInDrivers(validatedToken);
+          _sendTokenToPWA(validatedToken);
+        }
+      });
+      
+      // ✅ التعامل مع الرسائل عند فتح التطبيق من الإشعارات
+      FirebaseMessaging.onMessageOpenedApp.listen((message) {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        _handleNotificationClick(message.data); 
-      }
-    });
-    
-    FirebaseMessaging.onMessage.listen((message) {
-      _handleFcmMessage(message);
-    });
+        _handleNotificationClick(message.data);
+      });
+      
+      // ✅ التعامل مع الرسالة الأولية
+      messaging.getInitialMessage().then((message) { 
+        if (message != null) {
+          stopGlobalAlertSound();
+          _overlayEntry?.remove();
+          _overlayEntry = null;
+          _handleNotificationClick(message.data); 
+        }
+      });
+      
+      // ✅ الاستماع للرسائل في الخلفية
+      FirebaseMessaging.onMessage.listen((message) {
+        _handleFcmMessage(message);
+      });
+      
+    } catch (e) {
+      print('❌ خطأ في تهيئة Firebase Messaging: $e');
+    }
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
@@ -536,7 +632,19 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _sendTokenToPWA(String token) async {
     if (web != null && _isPageLoaded) {
-      await web!.evaluateJavascript(source: "if(typeof window.setFCMToken === 'function') window.setFCMToken('$token');");
+      try {
+        // ✅ إرسال التوكن إلى PWA عبر JavaScript
+        await web!.evaluateJavascript(source: """
+          if (typeof window.setFCMToken === 'function') {
+            window.setFCMToken('$token');
+          }
+          // ✅ أيضاً حفظ في localStorage كتأكيد إضافي
+          localStorage.setItem('fcm_token', '$token');
+        """);
+        print('✅ تم إرسال التوكن إلى PWA');
+      } catch (e) {
+        print('⚠️ فشل إرسال التوكن إلى PWA: $e');
+      }
     }
   }
 
@@ -552,9 +660,6 @@ class _DriverHomeState extends State<DriverHome> {
       _listenForRides(); 
       _startStatusSyncWithPWA(); 
       _startForegroundService(); 
-      if (fcmToken != null) {
-        await _updateTokenInDrivers(fcmToken!);
-      }
     }
   }
 
@@ -889,6 +994,46 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ دالة للتحقق من التوكن عند تحميل الصفحة
+  Future<void> _validateTokenOnPageLoad() async {
+    if (web != null && _isPageLoaded) {
+      try {
+        // قراءة التوكن من localStorage
+        final storedToken = await _getTokenFromLocalStorage();
+        
+        if (storedToken != null && storedToken.isNotEmpty) {
+          // التحقق من صحة التوكن المخزن
+          final validatedToken = await _validateAndRefreshToken(storedToken);
+          
+          if (validatedToken != null && validatedToken.isNotEmpty) {
+            if (validatedToken != storedToken) {
+              // التوكن تغير - نحتاج لتحديثه
+              print('🔄 تحديث التوكن من $storedToken إلى $validatedToken');
+              fcmToken = validatedToken;
+              await _saveTokenToLocalStorage(validatedToken);
+              await _updateTokenInDrivers(validatedToken);
+              _sendTokenToPWA(validatedToken);
+            } else {
+              print('✅ التوكن المخزن صالح');
+            }
+          }
+        } else {
+          // لا يوجد توكن مخزن - نحصل على واحد جديد
+          print('📱 لا يوجد توكن مخزن - جاري الحصول على واحد جديد');
+          final newToken = await _validateAndRefreshToken(null);
+          if (newToken != null && newToken.isNotEmpty) {
+            fcmToken = newToken;
+            await _saveTokenToLocalStorage(newToken);
+            await _updateTokenInDrivers(newToken);
+            _sendTokenToPWA(newToken);
+          }
+        }
+      } catch (e) {
+        print('⚠️ خطأ في التحقق من التوكن عند تحميل الصفحة: $e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -940,6 +1085,20 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
 
+              // ✅ إضافة handler لطلب التوكن من PWA
+              controller.addJavaScriptHandler(
+                handlerName: 'getFCMToken', 
+                callback: (args) { 
+                  print('📱 طلب التوكن من PWA');
+                  if (fcmToken != null) {
+                    // إرسال التوكن إلى PWA
+                    _sendTokenToPWA(fcmToken!);
+                    return fcmToken;
+                  }
+                  return null;
+                }
+              );
+
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
               }
@@ -958,7 +1117,15 @@ class _DriverHomeState extends State<DriverHome> {
                   _stopAlerts();
                 }
               }
-              if (fcmToken != null) _sendTokenToPWA(fcmToken!);
+              
+              // ✅ التحقق من صحة التوكن عند تحميل الصفحة
+              await _validateTokenOnPageLoad();
+              
+              // ✅ إرسال التوكن إلى PWA إذا كان موجوداً
+              if (fcmToken != null) {
+                _sendTokenToPWA(fcmToken!);
+              }
+              
               _startDriverSync();
             },
             shouldOverrideUrlLoading: (controller, nav) async {
