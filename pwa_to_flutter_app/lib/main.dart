@@ -448,8 +448,11 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
+  // ✅ دالة محسنة مع التحقق من null
   Future<void> _updateTokenInDrivers(String token) async {
-    if (driverId == null) {
+    // ✅ التحقق من وجود driverId وحفظه في متغير محلي
+    final currentDriverId = driverId;
+    if (currentDriverId == null) {
       print('⏳ [FCM] driverId غير متوفر بعد - سيُعاد المحاولة لاحقاً');
       return;
     }
@@ -460,7 +463,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     try {
-      // ✅ استخدام التحديث المباشر بدلاً من RPC لضمان الموثوقية
+      // ✅ استخدام currentDriverId بدلاً من driverId (غير nullable)
       final response = await supabase
           .from('drivers')
           .update({
@@ -468,12 +471,12 @@ class _DriverHomeState extends State<DriverHome> {
             'fcm_token_updated_at': DateTime.now().toIso8601String(),
             'fcm_token_valid': true,
           })
-          .eq('id', driverId);
+          .eq('id', currentDriverId);
 
       if (response.error == null) {
-        print('✅ [FCM] Token updated successfully via direct update for driver $driverId');
+        print('✅ [FCM] Token updated successfully via direct update for driver $currentDriverId');
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('fcm_token_synced_driver_id', driverId!);
+        await prefs.setString('fcm_token_synced_driver_id', currentDriverId);
         await prefs.setString('fcm_token_synced_value', token);
       } else {
         print('❌ [FCM] فشل تحديث التوكن عبر التحديث المباشر: ${response.error}');
@@ -670,6 +673,7 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ دالة محسنة مع التحقق من null
   Future<void> _saveDriver(String id) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driver_id', id);
@@ -707,15 +711,18 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
+  // ✅ دالة محسنة مع التحقق من null
   void _listenForRides() {
-    if (driverId == null) return;
+    final currentDriverId = driverId;
+    if (currentDriverId == null) return;
+
     channel?.unsubscribe();
-    channel = supabase.channel('ride_requests_$driverId')
+    channel = supabase.channel('ride_requests_$currentDriverId')
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
         table: 'ride_requests',
-        filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'driver_id', value: driverId!),
+        filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'driver_id', value: currentDriverId),
         callback: (payload) async {
           final data = payload.newRecord;
           Map<String, dynamic> rideData = data != null ? Map<String, dynamic>.from(data) : {};
@@ -952,12 +959,23 @@ class _DriverHomeState extends State<DriverHome> {
     Overlay.of(context).insert(_overlayEntry!);
   }
 
+  // ✅ دالة محسنة مع التحقق من null
   Future<void> _acceptRide(Map<String, dynamic> data) async {
     print(' قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
 
+    final currentDriverId = driverId;
+    if (currentDriverId == null) {
+      print('⚠️ لا يوجد سائق مسجل');
+      return;
+    }
+
     try {
-      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!);
+      await supabase
+          .from('ride_requests')
+          .update({'status': 'accepted'})
+          .eq('ride_id', data['ride_id'] ?? data['rideId'])
+          .eq('driver_id', currentDriverId);
     } catch (_) {}
 
     final rideId = _extractRideId(data);
@@ -987,7 +1005,10 @@ class _DriverHomeState extends State<DriverHome> {
   void _startStatusSyncWithPWA() {
     statusSyncTimer?.cancel();
     statusSyncTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      if (web == null || driverId == null) return;
+      if (web == null) return;
+      final currentDriverId = driverId;
+      if (currentDriverId == null) return;
+
       try {
         final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_forever_online')");
         if (res != null) _updateDriverStatusInSupabase(res == 'true');
@@ -995,11 +1016,14 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
+  // ✅ دالة محسنة مع التحقق من null
   Future<void> _updateDriverStatusInSupabase(bool isOnline) async {
-    if (driverId == null) return;
+    final currentDriverId = driverId;
+    if (currentDriverId == null) return;
+
     try {
       await supabase.from('driver_locations').upsert({
-        'driver_id': driverId,
+        'driver_id': currentDriverId,
         'is_online': isOnline,
         'last_seen': DateTime.now().toIso8601String()
       }).timeout(const Duration(seconds: 15));
