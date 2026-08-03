@@ -466,15 +466,21 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
+  // ✅ دالة تحديث التوكن في Supabase (مع التصحيح)
   Future<void> _updateTokenInDrivers(String token) async {
-    if (driverId == null) return;
+    // ✅ التحقق من وجود driverId
+    if (driverId == null) {
+      print('⚠️ Cannot update token: driverId is null');
+      return;
+    }
+    
     try {
       // ✅ محاولة استخدام RPC أولاً
       try {
         final response = await supabase.rpc(
           'update_driver_fcm_token',
           params: {
-            'p_driver_id': driverId,
+            'p_driver_id': driverId!, // ✅ استخدام ! لأننا تأكدنا من وجوده
             'p_fcm_token': token,
           },
         );
@@ -494,13 +500,13 @@ class _DriverHomeState extends State<DriverHome> {
       }
       
       // ✅ محاولة التحديث المباشر
-      final response = await supabase
+      await supabase
           .from('drivers')
           .update({
             'fcm_token': token,
             'last_fcm_sync': DateTime.now().toIso8601String(),
           })
-          .eq('id', driverId);
+          .eq('id', driverId!); // ✅ استخدام ! لأننا تأكدنا من وجوده
       
       print('✅ Token updated successfully via direct update');
       
