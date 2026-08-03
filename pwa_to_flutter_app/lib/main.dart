@@ -412,7 +412,6 @@ class _DriverHomeState extends State<DriverHome> {
   // ✅ تحقق بسيط من شكل التوكن
   bool _isValidFcmTokenFormat(String token) {
     if (token.isEmpty) return false;
-    if (token.length < 100) return false;
     if (token == 'false' || token == 'null') return false;
     return true;
   }
