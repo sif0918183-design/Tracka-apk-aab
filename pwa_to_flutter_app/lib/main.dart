@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart'; 
+import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; 
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' as fln;
 import 'package:permission_handler/permission_handler.dart';
@@ -69,15 +69,15 @@ Future<bool> _isDuplicateRide(String? rideId) async {
 // ✅ دالة إيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
   print(' [GLOBAL] إيقاف الصوت والاهتزاز...');
-  
+
   _globalIsAlertPlaying = false;
-  
+
   if (_globalAlertTimer != null) {
     _globalAlertTimer!.cancel();
     _globalAlertTimer = null;
     print('⏹️ [GLOBAL] تم إلغاء المؤقت');
   }
-  
+
   try {
     if (_globalAudioPlayer != null) {
       _globalAudioPlayer!.stop();
@@ -88,14 +88,14 @@ void stopGlobalAlertSound() {
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إيقاف مشغل الصوت: $e');
   }
-  
+
   try {
     Vibration.cancel();
     print(' [GLOBAL] تم إلغاء الاهتزاز');
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إلغاء الاهتزاز: $e');
   }
-  
+
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز');
 }
 
@@ -109,11 +109,11 @@ void _playAlertSoundInBackground() {
     _globalAudioPlayer!.setVolume(1.0);
     _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
     _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-    
+
     _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       if (_globalIsAlertPlaying) {
         try {
-          if (_globalAudioPlayer?.state == PlayerState.stopped || 
+          if (_globalAudioPlayer?.state == PlayerState.stopped ||
               _globalAudioPlayer?.state == PlayerState.completed) {
             await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
           }
@@ -130,7 +130,7 @@ void _playAlertSoundInBackground() {
       _globalAudioPlayer!.play(AssetSource('ride_request_sound.mp3'));
     } catch (_) {}
   }
-  
+
   // ✅ إيقاف تلقائي بعد 30 ثانية
   Future.delayed(Duration(seconds: _alertDurationSeconds), () {
     print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
@@ -257,7 +257,7 @@ Future<void> main() async {
     Permission.camera,
     Permission.ignoreBatteryOptimizations,
   ].request();
-  
+
   _initForegroundTask();
   runApp(const DriverApp());
 }
@@ -309,9 +309,14 @@ class _DriverHomeState extends State<DriverHome> {
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
-  
+
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
+
+  // ✅ جديد: عدّاد لإعادة محاولة إرسال التوكن للـ PWA
+  Timer? _tokenSyncRetryTimer;
+  int _tokenSyncAttempts = 0;
+  static const int _maxTokenSyncAttempts = 30; // ~2 دقيقة بمعدل كل 4 ثواني
 
   @override
   void initState() {
@@ -329,6 +334,7 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry = null;
     statusSyncTimer?.cancel();
     connectivitySubscription?.cancel();
+    _tokenSyncRetryTimer?.cancel();
     _globalAudioPlayer?.dispose();
     super.dispose();
   }
@@ -355,7 +361,7 @@ class _DriverHomeState extends State<DriverHome> {
           await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
         } catch (_) {}
       }
-      
+
       try {
         await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
         await androidImplementation.deleteNotificationChannel('emergency_channel_v12');
@@ -376,7 +382,7 @@ class _DriverHomeState extends State<DriverHome> {
         sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
-      
+
       // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
@@ -387,224 +393,140 @@ class _DriverHomeState extends State<DriverHome> {
         enableVibration: true,
       );
       await androidImplementation.createNotificationChannel(travelChan);
-      
+
       print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
     }
   }
 
-  // ✅ دالة الحصول على التوكن من Firebase (الطريقة الرسمية)
-  Future<String?> _getFCMToken() async {
-    try {
-      // ✅ الطريقة الرسمية للحصول على التوكن
-      String? token = await FirebaseMessaging.instance.getToken();
-      
-      if (token != null && token.isNotEmpty) {
-        print('✅ FCM Token obtained: $token');
-        return token;
-      } else {
-        print('❌ Failed to get FCM Token');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Error getting FCM token: $e');
-      return null;
-    }
+  // ✅ دالة جديدة: حفظ التوكن في SharedPreferences من جهة Flutter
+  Future<void> _persistTokenLocally(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fcm_token_cached', token);
+    await prefs.setInt(
+      'fcm_token_cached_at',
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    print('💾 [FCM] تم حفظ التوكن محلياً في Flutter: ${token.substring(0, 12)}...');
   }
 
-  // ✅ دالة للتحقق من صلاحية التوكن
-  Future<String?> _validateAndRefreshToken(String? currentToken) async {
-    try {
-      // ✅ الطريقة الرسمية للحصول على توكن جديد
-      String? newToken = await FirebaseMessaging.instance.getToken();
-      
-      if (newToken == null || newToken.isEmpty) {
-        return null;
-      }
-      
-      // إذا كان التوكن الحالي مختلفاً عن الجديد، نستخدم الجديد
-      if (currentToken != newToken) {
-        print('🔄 Token changed: $currentToken -> $newToken');
-        return newToken;
-      }
-      
-      print('✅ Token is valid');
-      return currentToken;
-    } catch (e) {
-      print('❌ Error validating token: $e');
-      return null;
-    }
+  // ✅ تحقق بسيط من شكل التوكن
+  bool _isValidFcmTokenFormat(String token) {
+    if (token.isEmpty) return false;
+    if (token.length < 100) return false;
+    if (token == 'false' || token == 'null') return false;
+    return true;
   }
 
-  // ✅ دالة لإرسال التوكن إلى PWA
-  Future<void> _sendTokenToPWA(String token) async {
-    if (web != null && _isPageLoaded) {
-      try {
-        await web!.evaluateJavascript(source: """
-          // ✅ حفظ التوكن في localStorage
-          localStorage.setItem('fcm_token', '$token');
-          localStorage.setItem('pending_fcm_token', '$token');
-          localStorage.setItem('flutter_token_ready', 'true');
-          
-          // ✅ تحديث التوكن في PWA
-          if (typeof window.setFCMToken === 'function') {
-            window.setFCMToken('$token');
-          }
-          
-          // ✅ إرسال حدث للـ PWA
-          window.dispatchEvent(new CustomEvent('flutterTokenReady', {
-            detail: { token: '$token' }
-          }));
-          
-          console.log('✅ Token sent from Flutter to PWA:', '$token');
-        """);
-        print('✅ Token sent to PWA: $token');
-      } catch (e) {
-        print('⚠️ Failed to send token to PWA: $e');
+  // ✅ آلية إعادة المحاولة
+  void _startTokenSyncRetryLoop() {
+    _tokenSyncRetryTimer?.cancel();
+    _tokenSyncAttempts = 0;
+
+    _tokenSyncRetryTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      _tokenSyncAttempts++;
+
+      final bool webReady = (web != null && _isPageLoaded);
+      final bool driverKnown = (driverId != null);
+
+      if (fcmToken == null) {
+        timer.cancel();
+        return;
       }
-    } else {
-      print('⏳ WebView not ready, token will be sent later');
-    }
+
+      if (webReady) {
+        _sendTokenToPWA(fcmToken!);
+      }
+
+      if (driverKnown) {
+        await _updateTokenInDrivers(fcmToken!);
+      }
+
+      if ((webReady && driverKnown) || _tokenSyncAttempts >= _maxTokenSyncAttempts) {
+        print('⏹️ [FCM] إيقاف حلقة إعادة المحاولة (webReady=$webReady, driverKnown=$driverKnown, attempts=$_tokenSyncAttempts)');
+        timer.cancel();
+        _tokenSyncRetryTimer = null;
+      }
+    });
   }
 
-  // ✅ دالة تحديث التوكن في Supabase (مع التصحيح)
   Future<void> _updateTokenInDrivers(String token) async {
-    // ✅ التحقق من وجود driverId
     if (driverId == null) {
-      print('⚠️ Cannot update token: driverId is null');
+      print('⏳ [FCM] driverId غير متوفر بعد - سيُعاد المحاولة لاحقاً');
       return;
     }
-    
+
+    if (!_isValidFcmTokenFormat(token)) {
+      print('⚠️ [FCM] التوكن يبدو غير صالح الشكل، تخطي التحديث: $token');
+      return;
+    }
+
     try {
-      // ✅ محاولة استخدام RPC أولاً
-      try {
-        final response = await supabase.rpc(
-          'update_driver_fcm_token',
-          params: {
-            'p_driver_id': driverId!, // ✅ استخدام ! لأننا تأكدنا من وجوده
-            'p_fcm_token': token,
-          },
-        );
-        
-        if (response == true) {
-          print('✅ Token updated successfully via RPC');
-          
-          // حفظ التوكن في SharedPreferences
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('fcm_token', token);
-          return;
-        } else {
-          print('❌ Failed to update token via RPC');
-        }
-      } catch (rpcError) {
-        print('⚠️ RPC failed, trying direct update: $rpcError');
+      final response = await supabase.rpc(
+        'update_driver_fcm_token',
+        params: {
+          'p_driver_id': driverId,
+          'p_fcm_token': token,
+        },
+      );
+
+      if (response == true) {
+        print('✅ [FCM] Token updated successfully via RPC for driver $driverId');
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcm_token_synced_driver_id', driverId!);
+        await prefs.setString('fcm_token_synced_value', token);
+      } else {
+        print('❌ [FCM] فشل تحديث التوكن عبر RPC (response=$response)');
       }
-      
-      // ✅ محاولة التحديث المباشر
-      await supabase
-          .from('drivers')
-          .update({
-            'fcm_token': token,
-            'last_fcm_sync': DateTime.now().toIso8601String(),
-          })
-          .eq('id', driverId!); // ✅ استخدام ! لأننا تأكدنا من وجوده
-      
-      print('✅ Token updated successfully via direct update');
-      
-      // حفظ التوكن في SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', token);
-      
     } catch (e) {
-      print('❌ Error updating token: $e');
+      print('❌ [FCM] خطأ أثناء تحديث التوكن عبر RPC: $e');
     }
   }
 
   Future<void> _initFirebaseMessaging() async {
-    try {
-      FirebaseMessaging messaging = FirebaseMessaging.instance;
-      
-      // ✅ طلب الإذن
-      NotificationSettings settings = await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      
-      print('✅ Notification permission: ${settings.authorizationStatus}');
-      
-      // ✅ تعيين خيارات العرض في المقدمة
-      await messaging.setForegroundNotificationPresentationOptions(
-        alert: false,
-        badge: false,
-        sound: false,
-      );
-      
-      // ✅ الحصول على التوكن بالطريقة الرسمية
-      String? token = await _getFCMToken();
-      
-      if (token != null && token.isNotEmpty) {
-        fcmToken = token;
-        
-        // ✅ حفظ في SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('fcm_token', token);
-        
-        // ✅ إرسال إلى PWA إذا كان جاهزاً
-        _sendTokenToPWA(token);
-        
-        // ✅ إرسال إلى Supabase
-        await _updateTokenInDrivers(token);
-        
-        print('✅ FCM Token initialized: $token');
-      } else {
-        print('❌ Failed to get FCM token');
-      }
-      
-      // ✅ الاستماع لتحديثات التوكن
-      messaging.onTokenRefresh.listen((newToken) async {
-        print('🔄 FCM Token refreshed: $newToken');
-        fcmToken = newToken;
-        
-        // ✅ حفظ في SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('fcm_token', newToken);
-        
-        // ✅ إرسال إلى PWA
-        _sendTokenToPWA(newToken);
-        
-        // ✅ إرسال إلى Supabase
-        await _updateTokenInDrivers(newToken);
-      });
-      
-      // ✅ الاستماع للرسائل في المقدمة
-      FirebaseMessaging.onMessage.listen((message) {
-        print('📩 Received message in foreground: ${message.messageId}');
-        _handleFcmMessage(message);
-      });
-      
-      // ✅ الاستماع لفتح التطبيق من الإشعار
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        print('📩 App opened from notification: ${message.messageId}');
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
+
+    fcmToken = await messaging.getToken();
+    if (fcmToken != null) {
+      await _persistTokenLocally(fcmToken!);
+      _sendTokenToPWA(fcmToken!);
+      await _updateTokenInDrivers(fcmToken!);
+      _startTokenSyncRetryLoop();
+    }
+
+    messaging.onTokenRefresh.listen((newToken) async {
+      fcmToken = newToken;
+      await _persistTokenLocally(newToken);
+      _sendTokenToPWA(newToken);
+      await _updateTokenInDrivers(newToken);
+      _startTokenSyncRetryLoop();
+    });
+
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      stopGlobalAlertSound();
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+      _handleNotificationClick(message.data);
+    });
+
+    messaging.getInitialMessage().then((message) {
+      if (message != null) {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
         _handleNotificationClick(message.data);
-      });
-      
-      // ✅ التعامل مع الرسالة الأولية
-      messaging.getInitialMessage().then((message) {
-        if (message != null) {
-          print('📩 Initial message: ${message.messageId}');
-          stopGlobalAlertSound();
-          _overlayEntry?.remove();
-          _overlayEntry = null;
-          _handleNotificationClick(message.data);
-        }
-      });
-      
-    } catch (e) {
-      print('❌ Error in Firebase Messaging setup: $e');
-    }
+      }
+    });
+
+    FirebaseMessaging.onMessage.listen((message) {
+      _handleFcmMessage(message);
+    });
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
@@ -661,39 +583,53 @@ class _DriverHomeState extends State<DriverHome> {
 
       stopGlobalAlertSound();
       _playAlertSound();
-      
+
       _showRideRequestModal(data);
       await _showLocalNotification(data);
       await _sendToPWA(data);
-      
+
       return;
     }
 
     await _showTravelNotification(data, message.notification?.title, message.notification?.body);
   }
 
+  void _sendTokenToPWA(String token) async {
+    if (web != null && _isPageLoaded) {
+      await web!.evaluateJavascript(source: "if(typeof window.setFCMToken === 'function') window.setFCMToken('$token');");
+      print('✅ [FCM] تم إرسال التوكن إلى PWA');
+    } else {
+      print('⏳ [FCM] PWA غير جاهزة بعد لإرسال التوكن');
+    }
+  }
+
   Future<void> _restoreDriver() async {
     final prefs = await SharedPreferences.getInstance();
     driverId = prefs.getString('driver_id');
-    
-    // ✅ استعادة التوكن من SharedPreferences
-    if (driverId != null) {
-      final savedToken = prefs.getString('fcm_token');
-      if (savedToken != null && savedToken.isNotEmpty) {
-        fcmToken = savedToken;
-        print('✅ Restored FCM token from SharedPreferences: $fcmToken');
-      }
-    }
-    
     final lastUrl = prefs.getString('last_url');
+
+    // ✅ استعادة التوكن المخزن محلياً
+    final cachedToken = prefs.getString('fcm_token_cached');
+    if (cachedToken != null && fcmToken == null) {
+      fcmToken = cachedToken;
+      print('♻️ [FCM] تم استعادة التوكن من التخزين المحلي');
+    }
+
     if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
       if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
       else setState(() => _pendingUrl = lastUrl);
     }
-    if (driverId != null) { 
-      _listenForRides(); 
-      _startStatusSyncWithPWA(); 
-      _startForegroundService(); 
+
+    if (driverId != null) {
+      // ✅ مزامنة التوكن مع driverId عند الاستعادة
+      if (fcmToken != null) {
+        await _updateTokenInDrivers(fcmToken!);
+        _sendTokenToPWA(fcmToken!);
+        _startTokenSyncRetryLoop();
+      }
+      _listenForRides();
+      _startStatusSyncWithPWA();
+      _startForegroundService();
     }
   }
 
@@ -701,11 +637,16 @@ class _DriverHomeState extends State<DriverHome> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driver_id', id);
     driverId = id;
-    
-    if (fcmToken != null) {
-      await _updateTokenInDrivers(fcmToken!);
+
+    // ✅ إن وُجد توكن محفوظ، زامنه فوراً
+    final cachedToken = fcmToken ?? prefs.getString('fcm_token_cached');
+    if (cachedToken != null) {
+      fcmToken = cachedToken;
+      await _updateTokenInDrivers(cachedToken);
+      _sendTokenToPWA(cachedToken);
+      _startTokenSyncRetryLoop();
     }
-    
+
     _listenForRides();
     _notifyPWAOfDriver(id);
     _startForegroundService();
@@ -722,9 +663,9 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _initConnectivity() {
     connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
-      if (result != ConnectivityResult.none && driverId != null) { 
-        _listenForRides(); 
-        _updateDriverStatusInSupabase(true); 
+      if (result != ConnectivityResult.none && driverId != null) {
+        _listenForRides();
+        _updateDriverStatusInSupabase(true);
       }
     });
   }
@@ -764,11 +705,11 @@ class _DriverHomeState extends State<DriverHome> {
       _globalAudioPlayer!.setVolume(1.0);
       _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
       _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-      
+
       _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
         if (_globalIsAlertPlaying) {
           try {
-            if (_globalAudioPlayer?.state == PlayerState.stopped || 
+            if (_globalAudioPlayer?.state == PlayerState.stopped ||
                 _globalAudioPlayer?.state == PlayerState.completed) {
               await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
             }
@@ -798,11 +739,11 @@ class _DriverHomeState extends State<DriverHome> {
       bool? hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
         Vibration.vibrate(pattern: [
-          0, 600, 200, 600, 200, 600, 200, 600, 
+          0, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600
         ], repeat: 0);
-        
+
         for (int i = 2; i <= 12; i += 2) {
           Future.delayed(Duration(seconds: i), () {
             if (_globalIsAlertPlaying) {
@@ -817,12 +758,12 @@ class _DriverHomeState extends State<DriverHome> {
   void _stopAlerts() {
     print(' إيقاف جميع التنبيهات...');
     stopGlobalAlertSound();
-    
+
     if (_overlayEntry != null) {
       _overlayEntry!.remove();
       _overlayEntry = null;
     }
-    
+
     try {
       notifications.cancelAll();
     } catch (_) {}
@@ -887,10 +828,10 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _showRideRequestModal(Map<String, dynamic> data) {
     _overlayEntry?.remove();
-    
+
     final context = navigatorKey.currentContext;
     if (context == null) return;
-    
+
     _overlayEntry = OverlayEntry(
       builder: (context) => Material(
         color: Colors.black54,
@@ -977,11 +918,11 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _acceptRide(Map<String, dynamic> data) async {
     print(' قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
-    
-    try { 
-      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
+
+    try {
+      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!);
     } catch (_) {}
-    
+
     final rideId = _extractRideId(data);
     if (rideId != null && web != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
@@ -1001,9 +942,9 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
-  void _notifyPWAOfDriver(String id) { 
-    if (web == null) return; 
-    web!.evaluateJavascript(source: "localStorage.setItem('driver_id', '$id');"); 
+  void _notifyPWAOfDriver(String id) {
+    if (web == null) return;
+    web!.evaluateJavascript(source: "localStorage.setItem('driver_id', '$id');");
   }
 
   void _startStatusSyncWithPWA() {
@@ -1019,12 +960,12 @@ class _DriverHomeState extends State<DriverHome> {
 
   Future<void> _updateDriverStatusInSupabase(bool isOnline) async {
     if (driverId == null) return;
-    try { 
+    try {
       await supabase.from('driver_locations').upsert({
-        'driver_id': driverId, 
-        'is_online': isOnline, 
+        'driver_id': driverId,
+        'is_online': isOnline,
         'last_seen': DateTime.now().toIso8601String()
-      }).timeout(const Duration(seconds: 15)); 
+      }).timeout(const Duration(seconds: 15));
     } catch (_) {}
   }
 
@@ -1050,89 +991,43 @@ class _DriverHomeState extends State<DriverHome> {
             ),
             onWebViewCreated: (controller) {
               web = controller;
-              
-              // ✅ Handler لطلب التوكن من PWA
+
               controller.addJavaScriptHandler(
-                handlerName: 'getFCMToken', 
-                callback: (args) { 
-                  print('📱 PWA requested FCM token');
-                  if (fcmToken != null) {
-                    // ✅ إرسال التوكن إلى PWA
-                    _sendTokenToPWA(fcmToken!);
-                    return fcmToken;
-                  }
-                  return null;
-                }
-              );
-              
-              // ✅ Handler لتحديث التوكن من PWA
-              controller.addJavaScriptHandler(
-                handlerName: 'updateFCMToken',
-                callback: (args) async {
-                  print('📱 PWA updating FCM token');
-                  if (args.isNotEmpty && args[0] != null) {
-                    final newToken = args[0].toString();
-                    if (newToken.isNotEmpty && newToken != fcmToken) {
-                      fcmToken = newToken;
-                      await _updateTokenInDrivers(newToken);
-                      // ✅ حفظ في SharedPreferences
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('fcm_token', newToken);
-                      return 'OK';
-                    }
-                  }
-                  return 'FAILED';
-                }
-              );
-              
-              // ✅ Handler لإيقاف التنبيهات من PWA
-              controller.addJavaScriptHandler(
-                handlerName: 'stopAlertsFromPWA', 
-                callback: (args) { 
+                handlerName: 'stopAlertsFromPWA',
+                callback: (args) {
                   print(' تم استلام طلب إيقاف التنبيهات من PWA');
-                  _stopAlerts(); 
+                  _stopAlerts();
                   return 'OK';
                 }
               );
-              
-              // ✅ Handler لإيقاف التنبيهات
+
               controller.addJavaScriptHandler(
-                handlerName: 'stopAlerts', 
-                callback: (args) { 
+                handlerName: 'stopAlerts',
+                callback: (args) {
                   print(' تم استلام طلب إيقاف التنبيهات (stopAlerts)');
                   _stopAlerts();
                   return 'OK';
                 }
               );
-              
-              // ✅ Handler لتسجيل دخول السائق
+
               controller.addJavaScriptHandler(
-                handlerName: 'driverLogin', 
-                callback: (args) { 
+                handlerName: 'driverLogin',
+                callback: (args) {
                   if (args.isNotEmpty && args[0] is Map) {
-                    _saveDriver(args[0]['driverId'].toString()); 
+                    _saveDriver(args[0]['driverId'].toString());
                   }
                   return 'OK';
                 }
               );
 
-              // ✅ إعلام PWA بأن Flutter جاهز
-              controller.evaluateJavascript(source: """
-                window.flutterReady = true;
-                window.flutterWebViewReady = true;
-                window.dispatchEvent(new CustomEvent('flutterReady'));
-                console.log('✅ Flutter WebView is ready');
-              """);
-
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
               }
             },
-            onGeolocationPermissionsShowPrompt: (controller, origin) async => 
+            onGeolocationPermissionsShowPrompt: (controller, origin) async =>
                 GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
             onLoadStop: (controller, url) async {
               _isPageLoaded = true;
-              
               if (url != null) {
                 final String currentUrl = url.toString();
                 final prefs = await SharedPreferences.getInstance();
@@ -1143,30 +1038,9 @@ class _DriverHomeState extends State<DriverHome> {
                   _stopAlerts();
                 }
               }
-              
-              // ✅ إعلام PWA بأن الصفحة تحملت
-              await controller.evaluateJavascript(source: """
-                window.flutterPageLoaded = true;
-                window.dispatchEvent(new CustomEvent('flutterPageLoaded'));
-                console.log('✅ Flutter page loaded');
-              """);
-              
-              // ✅ إرسال التوكن إلى PWA إذا كان موجوداً
-              if (fcmToken != null) {
-                _sendTokenToPWA(fcmToken!);
-              }
-              
-              // ✅ التحقق من صلاحية التوكن
-              if (fcmToken != null) {
-                final validatedToken = await _validateAndRefreshToken(fcmToken);
-                if (validatedToken != null && validatedToken != fcmToken) {
-                  fcmToken = validatedToken;
-                  _sendTokenToPWA(fcmToken!);
-                  await _updateTokenInDrivers(fcmToken!);
-                }
-              }
-              
+              if (fcmToken != null) _sendTokenToPWA(fcmToken!);
               _startDriverSync();
+              _startTokenSyncRetryLoop(); // ✅ تشغيل حلقة المزامنة عند تحميل الصفحة
             },
             shouldOverrideUrlLoading: (controller, nav) async {
               final uri = nav.request.url!;
