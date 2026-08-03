@@ -460,24 +460,26 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     try {
-      final response = await supabase.rpc(
-        'update_driver_fcm_token',
-        params: {
-          'p_driver_id': driverId,
-          'p_fcm_token': token,
-        },
-      );
+      // ✅ استخدام التحديث المباشر بدلاً من RPC لضمان الموثوقية
+      final response = await supabase
+          .from('drivers')
+          .update({
+            'fcm_token': token,
+            'fcm_token_updated_at': DateTime.now().toIso8601String(),
+            'fcm_token_valid': true,
+          })
+          .eq('id', driverId);
 
-      if (response == true) {
-        print('✅ [FCM] Token updated successfully via RPC for driver $driverId');
+      if (response.error == null) {
+        print('✅ [FCM] Token updated successfully via direct update for driver $driverId');
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('fcm_token_synced_driver_id', driverId!);
         await prefs.setString('fcm_token_synced_value', token);
       } else {
-        print('❌ [FCM] فشل تحديث التوكن عبر RPC (response=$response)');
+        print('❌ [FCM] فشل تحديث التوكن عبر التحديث المباشر: ${response.error}');
       }
     } catch (e) {
-      print('❌ [FCM] خطأ أثناء تحديث التوكن عبر RPC: $e');
+      print('❌ [FCM] خطأ أثناء تحديث التوكن: $e');
     }
   }
 
@@ -593,12 +595,48 @@ class _DriverHomeState extends State<DriverHome> {
     await _showTravelNotification(data, message.notification?.title, message.notification?.body);
   }
 
+  // ✅ دالة محسنة لإرسال التوكن إلى PWA مع آلية إعادة محاولة
   void _sendTokenToPWA(String token) async {
-    if (web != null && _isPageLoaded) {
-      await web!.evaluateJavascript(source: "if(typeof window.setFCMToken === 'function') window.setFCMToken('$token');");
-      print('✅ [FCM] تم إرسال التوكن إلى PWA');
-    } else {
-      print('⏳ [FCM] PWA غير جاهزة بعد لإرسال التوكن');
+    if (web == null) return;
+
+    try {
+      // ✅ حقن التوكن مع آلية إعادة محاولة داخل الـ PWA نفسها
+      await web!.evaluateJavascript(source: """
+        (function() {
+          var token = '$token';
+          var attempts = 0;
+          var maxAttempts = 30; // 30 محاولة كل 200ms = 6 ثواني كحد أقصى
+
+          function tryInjectToken() {
+            if (typeof window.setFCMToken === 'function') {
+              console.log('✅ [PWA] Token injected successfully');
+              window.setFCMToken(token);
+              localStorage.removeItem('pending_fcm_token'); // مسح التوكن المعلق بعد الحقن
+              return true;
+            } else if (attempts < maxAttempts) {
+              attempts++;
+              console.log('⏳ [PWA] Waiting for setFCMToken... attempt ' + attempts);
+              setTimeout(tryInjectToken, 200);
+              return false;
+            } else {
+              console.warn('⚠️ [PWA] Max attempts reached, saving to pending');
+              localStorage.setItem('pending_fcm_token', token);
+              return false;
+            }
+          }
+
+          tryInjectToken();
+        })();
+      """);
+      print('✅ [FCM] تم إرسال التوكن إلى PWA مع آلية إعادة المحاولة');
+    } catch (e) {
+      print('⚠️ [FCM] خطأ أثناء الحقن في PWA: $e');
+      // حفظ التوكن في local storage كحل احتياطي
+      try {
+        await web!.evaluateJavascript(source: """
+          localStorage.setItem('pending_fcm_token', '$token');
+        """);
+      } catch (_) {}
     }
   }
 
