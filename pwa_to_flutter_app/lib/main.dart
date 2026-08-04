@@ -17,7 +17,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 // ✅ Global Navigator Key for Overlay
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -304,7 +303,6 @@ class _DriverHomeState extends State<DriverHome> {
   InAppWebViewController? web;
   bool _isPageLoaded = false;
   String? driverId;
-  String? fcmToken;
   String? _pendingUrl;
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
@@ -403,11 +401,11 @@ class _DriverHomeState extends State<DriverHome> {
     );
     
     // ✅ فقط نحصل على التوكن لتخزينه محلياً، ولا نرسله لأي مكان
-    fcmToken = await messaging.getToken();
-    if (fcmToken != null) {
+    final token = await messaging.getToken();
+    if (token != null && token.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', fcmToken!);
-      print('✅ [Flutter] FCM Token stored locally: ${fcmToken!.substring(0, 20)}...');
+      await prefs.setString('fcm_token', token);
+      print('✅ [Flutter] FCM Token stored locally: ${token.substring(0, 20)}...');
     }
     
     // ✅ استمع لتحديث التوكن وأبلغ الـPWA إذا كانت الصفحة محملة
@@ -415,7 +413,6 @@ class _DriverHomeState extends State<DriverHome> {
       print('🔄 [Flutter] FCM Token refreshed: $newToken');
       
       // حفظ في SharedPreferences
-      fcmToken = newToken;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', newToken);
       
@@ -423,7 +420,7 @@ class _DriverHomeState extends State<DriverHome> {
       if (_isPageLoaded && web != null) {
         try {
           await web!.evaluateJavascript(
-            source: "window.onNativeTokenChanged && window.onNativeTokenChanged('$newToken');"
+            source: "if(window.onNativeTokenChanged) window.onNativeTokenChanged('$newToken');"
           );
           print('✅ [Flutter] Token refresh sent to PWA');
         } catch (e) {
@@ -883,70 +880,112 @@ class _DriverHomeState extends State<DriverHome> {
             onWebViewCreated: (controller) {
               web = controller;
               
-              // ✅ JavaScript Handler: Get FCM Token from Flutter
+              print('📱 [Flutter] ========================================');
+              print('📱 [Flutter] 🚀 WebView Created - Registering Handlers');
+              print('📱 [Flutter] ========================================');
+              
+              // ✅ Handler 1: Ping (للاختبار)
+              controller.addJavaScriptHandler(
+                handlerName: 'ping',
+                callback: (args) {
+                  print('📱 [Flutter] ✅ Ping received from PWA');
+                  return 'pong';
+                },
+              );
+              
+              // ✅ Handler 2: Get FCM Token (الأساسي)
               controller.addJavaScriptHandler(
                 handlerName: 'getFCMToken',
                 callback: (args) async {
+                  print('📱 [Flutter] 📞 getFCMToken called from PWA');
+                  print('📱 [Flutter] 📋 Arguments: $args');
+                  
                   try {
+                    // محاولة الحصول على التوكن من Firebase
                     final token = await FirebaseMessaging.instance.getToken();
+                    print('📱 [Flutter] 🔑 Raw token from Firebase: $token');
+                    
                     if (token != null && token.isNotEmpty) {
+                      // حفظ في SharedPreferences
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('fcm_token', token);
-                      print('✅ [Flutter] FCM Token provided to PWA: ${token.substring(0, 20)}...');
+                      print('📱 [Flutter] ✅ Token stored in SharedPreferences');
+                      print('📱 [Flutter] ✅ Returning token to PWA: ${token.substring(0, 20)}...');
                       return token;
+                    } else {
+                      print('📱 [Flutter] ⚠️ No token available from Firebase');
+                      return null;
                     }
-                    print('⚠️ [Flutter] No FCM token available');
-                    return null;
                   } catch (e) {
-                    print('❌ [Flutter] Error getting FCM token: $e');
+                    print('📱 [Flutter] ❌ Error getting token: $e');
                     return null;
                   }
                 },
               );
               
-              // ✅ JavaScript Handler: Token sync complete confirmation
+              // ✅ Handler 3: Token sync complete (تأكيد من PWA)
               controller.addJavaScriptHandler(
                 handlerName: 'tokenSyncComplete',
                 callback: (args) {
-                  print('✅ [Flutter] PWA confirmed token sync: $args');
+                  print('📱 [Flutter] ✅ PWA confirmed token sync: $args');
                   return 'OK';
                 },
               );
               
-              // ✅ JavaScript Handler: Stop alerts from PWA
+              // ✅ Handler 4: Stop alerts from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
-                  print(' تم استلام طلب إيقاف التنبيهات من PWA');
+                  print('📱 [Flutter] 🛑 Stop alerts received from PWA');
                   _stopAlerts(); 
                   return 'OK';
                 }
               );
               
-              // ✅ JavaScript Handler: Stop alerts (alternative name)
+              // ✅ Handler 5: Stop alerts (alternative name)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
-                  print(' تم استلام طلب إيقاف التنبيهات (stopAlerts)');
+                  print('📱 [Flutter] 🛑 Stop alerts (alt) received from PWA');
                   _stopAlerts();
                   return 'OK';
                 }
               );
               
-              // ✅ JavaScript Handler: Driver login from PWA
+              // ✅ Handler 6: Driver login from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
+                  print('📱 [Flutter] 🔐 Driver login received from PWA');
+                  print('📱 [Flutter] 📋 Data: $args');
+                  
                   if (args.isNotEmpty && args[0] is Map) {
                     final data = args[0] as Map;
                     final id = data['id']?.toString() ?? data['driver_id']?.toString();
                     if (id != null && id.isNotEmpty) {
+                      print('📱 [Flutter] ✅ Driver ID: $id');
                       _saveDriver(id);
+                    } else {
+                      print('📱 [Flutter] ⚠️ No driver ID found in data');
                     }
                   }
                   return 'OK';
                 }
               );
+              
+              // ✅ Handler 7: Get driver ID (للتأكد من السائق الحالي)
+              controller.addJavaScriptHandler(
+                handlerName: 'getDriverId',
+                callback: (args) {
+                  print('📱 [Flutter] 📞 getDriverId called from PWA');
+                  print('📱 [Flutter] 📋 Current driverId: $driverId');
+                  return driverId ?? '';
+                },
+              );
+              
+              print('📱 [Flutter] ========================================');
+              print('📱 [Flutter] ✅ All Handlers Registered Successfully');
+              print('📱 [Flutter] ========================================');
 
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
@@ -956,13 +995,15 @@ class _DriverHomeState extends State<DriverHome> {
                 GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
             onLoadStop: (controller, url) async {
               _isPageLoaded = true;
+              print('📱 [Flutter] 🌐 Page loaded: $url');
+              
               if (url != null) {
                 final String currentUrl = url.toString();
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
                 if (currentUrl.contains('accept-ride.html')) {
-                  print(' تم تحميل accept-ride.html');
+                  print('📱 [Flutter] 📍 accept-ride.html loaded - stopping alerts');
                   _stopAlerts();
                 }
               }
@@ -987,7 +1028,10 @@ class _DriverHomeState extends State<DriverHome> {
       if (web == null) return;
       try {
         final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
-        if (res != null && res != 'null' && res != driverId) _saveDriver(res);
+        if (res != null && res != 'null' && res != driverId) {
+          print('📱 [Flutter] 🔄 Driver ID changed to: $res');
+          _saveDriver(res);
+        }
       } catch (_) {}
     });
   }
