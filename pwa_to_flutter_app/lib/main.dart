@@ -235,6 +235,22 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   await Firebase.initializeApp();
+  print('✅ Firebase initialized');
+
+  // ✅ التحقق من التوكن فور بدء التطبيق
+  try {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null && token.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fcm_token', token);
+      print('✅ [Flutter] Initial token stored: ${token.substring(0, 20)}...');
+    } else {
+      print('⚠️ [Flutter] No initial token available');
+    }
+  } catch (e) {
+    print('❌ [Flutter] Error getting initial token: $e');
+  }
+
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   if (kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
@@ -392,7 +408,15 @@ class _DriverHomeState extends State<DriverHome> {
 
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    
+    // ✅ طلب الأذونات مع إعادة محاولة
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    
+    print('📱 [Flutter] Permission status: ${settings.authorizationStatus}');
     
     await messaging.setForegroundNotificationPresentationOptions(
       alert: false,
@@ -400,23 +424,25 @@ class _DriverHomeState extends State<DriverHome> {
       sound: false,
     );
     
-    // ✅ فقط نحصل على التوكن لتخزينه محلياً، ولا نرسله لأي مكان
-    final token = await messaging.getToken();
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', token);
-      print('✅ [Flutter] FCM Token stored locally: ${token.substring(0, 20)}...');
+    // ✅ الحصول على التوكن وحفظه
+    try {
+      final token = await messaging.getToken();
+      if (token != null && token.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcm_token', token);
+        print('✅ [Flutter] FCM Token stored: ${token.substring(0, 20)}...');
+      }
+    } catch (e) {
+      print('❌ [Flutter] Error getting token: $e');
     }
     
-    // ✅ استمع لتحديث التوكن وأبلغ الـPWA إذا كانت الصفحة محملة
+    // ✅ استمع لتحديث التوكن
     messaging.onTokenRefresh.listen((newToken) async {
       print('🔄 [Flutter] FCM Token refreshed: $newToken');
       
-      // حفظ في SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', newToken);
       
-      // إذا كانت الصفحة محملة، أبلغ الـPWA
       if (_isPageLoaded && web != null) {
         try {
           await web!.evaluateJavascript(
@@ -893,37 +919,94 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 2: Get FCM Token (الأساسي)
+              // ✅ Handler 2: Get FCM Token مع إعادة محاولة
               controller.addJavaScriptHandler(
                 handlerName: 'getFCMToken',
                 callback: (args) async {
                   print('📱 [Flutter] 📞 getFCMToken called from PWA');
-                  print('📱 [Flutter] 📋 Arguments: $args');
                   
                   try {
-                    // محاولة الحصول على التوكن من Firebase
-                    final token = await FirebaseMessaging.instance.getToken();
-                    print('📱 [Flutter] 🔑 Raw token from Firebase: $token');
+                    // 1. طلب الأذونات
+                    NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
+                      alert: true,
+                      badge: true,
+                      sound: true,
+                    );
                     
-                    if (token != null && token.isNotEmpty) {
-                      // حفظ في SharedPreferences
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('fcm_token', token);
-                      print('📱 [Flutter] ✅ Token stored in SharedPreferences');
-                      print('📱 [Flutter] ✅ Returning token to PWA: ${token.substring(0, 20)}...');
-                      return token;
-                    } else {
-                      print('📱 [Flutter] ⚠️ No token available from Firebase');
+                    print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
+                    
+                    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+                      print('📱 [Flutter] ⚠️ Not authorized');
                       return null;
                     }
+                    
+                    // 2. محاولة الحصول على التوكن مع إعادة محاولة
+                    String? token;
+                    for (int i = 0; i < 3; i++) {
+                      try {
+                        token = await FirebaseMessaging.instance.getToken();
+                        if (token != null && token.isNotEmpty) break;
+                      } catch (e) {
+                        print('📱 [Flutter] ❌ Attempt ${i+1} failed: $e');
+                      }
+                      await Future.delayed(Duration(seconds: 1));
+                    }
+                    
+                    if (token != null && token.isNotEmpty) {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('fcm_token', token);
+                      print('📱 [Flutter] ✅ Token: ${token.substring(0, 20)}...');
+                      return token;
+                    }
+                    
+                    print('📱 [Flutter] ❌ No token available');
+                    return null;
+                    
                   } catch (e) {
-                    print('📱 [Flutter] ❌ Error getting token: $e');
+                    print('📱 [Flutter] ❌ Error: $e');
                     return null;
                   }
                 },
               );
               
-              // ✅ Handler 3: Token sync complete (تأكيد من PWA)
+              // ✅ Handler 3: Get stored token from SharedPreferences (احتياطي)
+              controller.addJavaScriptHandler(
+                handlerName: 'getStoredFCMToken',
+                callback: (args) async {
+                  print('📱 [Flutter] 📞 getStoredFCMToken called');
+                  try {
+                    final prefs = await SharedPreferences.getInstance();
+                    final token = prefs.getString('fcm_token');
+                    print('📱 [Flutter] 🔑 Stored token: ${token?.substring(0, 20)}...');
+                    return token;
+                  } catch (e) {
+                    print('📱 [Flutter] ❌ Error: $e');
+                    return null;
+                  }
+                },
+              );
+              
+              // ✅ Handler 4: Check FCM status (للتشخيص)
+              controller.addJavaScriptHandler(
+                handlerName: 'checkFCMStatus',
+                callback: (args) async {
+                  print('📱 [Flutter] 🔍 checkFCMStatus called');
+                  try {
+                    final token = await FirebaseMessaging.instance.getToken();
+                    final settings = await FirebaseMessaging.instance.requestPermission();
+                    return {
+                      'hasToken': token != null && token.isNotEmpty,
+                      'token': token,
+                      'permission': settings.authorizationStatus.toString(),
+                      'tokenLength': token?.length ?? 0,
+                    };
+                  } catch (e) {
+                    return {'error': e.toString(), 'hasToken': false};
+                  }
+                },
+              );
+              
+              // ✅ Handler 5: Token sync complete
               controller.addJavaScriptHandler(
                 handlerName: 'tokenSyncComplete',
                 callback: (args) {
@@ -932,7 +1015,7 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 4: Stop alerts from PWA
+              // ✅ Handler 6: Stop alerts from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
@@ -942,7 +1025,7 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 5: Stop alerts (alternative name)
+              // ✅ Handler 7: Stop alerts (alternative name)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
@@ -952,7 +1035,7 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 6: Driver login from PWA
+              // ✅ Handler 8: Driver login from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
@@ -973,7 +1056,7 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 7: Get driver ID (للتأكد من السائق الحالي)
+              // ✅ Handler 9: Get driver ID
               controller.addJavaScriptHandler(
                 handlerName: 'getDriverId',
                 callback: (args) {
