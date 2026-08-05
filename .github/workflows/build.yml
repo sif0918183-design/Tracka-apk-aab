@@ -26,48 +26,28 @@ jobs:
         run: flutter pub get
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ إنشاء google-services.json (الحل النهائي)
-      # ============================================
       - name: Create google-services.json
         run: |
-          mkdir -p android/app/src/main
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" > /tmp/gservices.tmp
-          base64 -d /tmp/gservices.tmp > android/app/src/main/google-services.json
-          rm -f /tmp/gservices.tmp
-          
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/src/main/google-services.json
           if [ -f android/app/src/main/google-services.json ]; then
-            SIZE=$(stat -c%s android/app/src/main/google-services.json 2>/dev/null || stat -f%z android/app/src/main/google-services.json 2>/dev/null)
-            echo "✅ google-services.json created ($SIZE bytes)"
-            echo "📄 First line:"
-            head -n 1 android/app/src/main/google-services.json
+            echo "✅ google-services.json created"
           else
             echo "❌ Failed to create google-services.json"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ فك تشفير Keystore
-      # ============================================
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" > /tmp/keystore.tmp
-          base64 -d /tmp/keystore.tmp > android/upload-keystore.jks
-          rm -f /tmp/keystore.tmp
-          
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
           if [ -f android/upload-keystore.jks ]; then
-            SIZE=$(stat -c%s android/upload-keystore.jks 2>/dev/null || stat -f%z android/upload-keystore.jks 2>/dev/null)
-            echo "✅ Keystore created ($SIZE bytes)"
+            echo "✅ Keystore created"
           else
             echo "❌ Failed to create keystore"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ إنشاء key.properties
-      # ============================================
       - name: Create key.properties
         run: |
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
@@ -76,16 +56,10 @@ jobs:
           echo "✅ key.properties created"
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ Generate App Icons
-      # ============================================
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ Build APK
-      # ============================================
       - name: Build APK
         run: |
           flutter clean
@@ -94,39 +68,44 @@ jobs:
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           
+          # التحقق من وجود APK
           if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            SIZE=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk 2>/dev/null || stat -f%z build/app/outputs/flutter-apk/app-release.apk 2>/dev/null)
-            echo "✅ APK built ($SIZE bytes)"
+            echo "✅ APK built successfully"
+            ls -la build/app/outputs/flutter-apk/
           else
-            echo "❌ APK build failed"
+            echo "❌ APK build failed - file not found"
+            echo "📁 Searching for APK files..."
+            find build -name "*.apk" 2>/dev/null || echo "No APK files found"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ Build AAB
-      # ============================================
       - name: Build AAB
         run: |
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           
+          # التحقق من وجود AAB
           if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
-            SIZE=$(stat -c%s build/app/outputs/bundle/release/app-release.aab 2>/dev/null || stat -f%z build/app/outputs/bundle/release/app-release.aab 2>/dev/null)
-            echo "✅ AAB built ($SIZE bytes)"
+            echo "✅ AAB built successfully"
+            ls -la build/app/outputs/bundle/release/
           else
-            echo "❌ AAB build failed"
+            echo "❌ AAB build failed - file not found"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
-      # ============================================
-      # ✅ Upload APK to Supabase
-      # ============================================
+      # ✅ رفع APK إلى Supabase
       - name: Upload APK to Supabase
         if: success()
         run: |
+          # التحقق من وجود الملف قبل الرفع
+          if [ ! -f pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk ]; then
+            echo "❌ APK file not found for upload"
+            exit 1
+          fi
+          
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           BUILD_NUM="${{ github.run_number }}"
           APK_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.apk"
@@ -138,16 +117,24 @@ jobs:
             -H "Content-Type: application/octet-stream" \
             --data-binary "@pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk"
           
-          echo "✅ APK uploaded"
-          echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$APK_NAME"
-        working-directory: pwa_to_flutter_app
+          if [ $? -eq 0 ]; then
+            echo "✅ APK uploaded successfully"
+            echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$APK_NAME"
+          else
+            echo "❌ APK upload failed"
+            exit 1
+          fi
 
-      # ============================================
-      # ✅ Upload AAB to Supabase
-      # ============================================
+      # ✅ رفع AAB إلى Supabase
       - name: Upload AAB to Supabase
         if: success()
         run: |
+          # التحقق من وجود الملف قبل الرفع
+          if [ ! -f pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab ]; then
+            echo "❌ AAB file not found for upload"
+            exit 1
+          fi
+          
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           BUILD_NUM="${{ github.run_number }}"
           AAB_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.aab"
@@ -159,6 +146,10 @@ jobs:
             -H "Content-Type: application/octet-stream" \
             --data-binary "@pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab"
           
-          echo "✅ AAB uploaded"
-          echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$AAB_NAME"
-        working-directory: pwa_to_flutter_app
+          if [ $? -eq 0 ]; then
+            echo "✅ AAB uploaded successfully"
+            echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$AAB_NAME"
+          else
+            echo "❌ AAB upload failed"
+            exit 1
+          fi
