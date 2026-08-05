@@ -27,20 +27,20 @@ jobs:
         working-directory: pwa_to_flutter_app
 
       # ============================================
-      # ✅ إنشاء google-services.json (الإصدار الآمن)
+      # ✅ إنشاء google-services.json (الحل النهائي)
       # ============================================
       - name: Create google-services.json
         run: |
           mkdir -p android/app/src/main
-          # استخدام printf بدلاً من echo لتجنب مشاكل الأحرف الخاصة
-          printf '%s' "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/src/main/google-services.json
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" > /tmp/gservices.tmp
+          base64 -d /tmp/gservices.tmp > android/app/src/main/google-services.json
+          rm -f /tmp/gservices.tmp
           
-          # التحقق من وجود الملف
           if [ -f android/app/src/main/google-services.json ]; then
-            SIZE=$(stat -c%s android/app/src/main/google-services.json)
+            SIZE=$(stat -c%s android/app/src/main/google-services.json 2>/dev/null || stat -f%z android/app/src/main/google-services.json 2>/dev/null)
             echo "✅ google-services.json created ($SIZE bytes)"
-            echo "📄 First 3 lines:"
-            head -n 3 android/app/src/main/google-services.json
+            echo "📄 First line:"
+            head -n 1 android/app/src/main/google-services.json
           else
             echo "❌ Failed to create google-services.json"
             exit 1
@@ -52,10 +52,12 @@ jobs:
       # ============================================
       - name: Decode Keystore
         run: |
-          printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" > /tmp/keystore.tmp
+          base64 -d /tmp/keystore.tmp > android/upload-keystore.jks
+          rm -f /tmp/keystore.tmp
           
           if [ -f android/upload-keystore.jks ]; then
-            SIZE=$(stat -c%s android/upload-keystore.jks)
+            SIZE=$(stat -c%s android/upload-keystore.jks 2>/dev/null || stat -f%z android/upload-keystore.jks 2>/dev/null)
             echo "✅ Keystore created ($SIZE bytes)"
           else
             echo "❌ Failed to create keystore"
@@ -93,7 +95,7 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           
           if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            SIZE=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk)
+            SIZE=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk 2>/dev/null || stat -f%z build/app/outputs/flutter-apk/app-release.apk 2>/dev/null)
             echo "✅ APK built ($SIZE bytes)"
           else
             echo "❌ APK build failed"
@@ -111,7 +113,7 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           
           if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
-            SIZE=$(stat -c%s build/app/outputs/bundle/release/app-release.aab)
+            SIZE=$(stat -c%s build/app/outputs/bundle/release/app-release.aab 2>/dev/null || stat -f%z build/app/outputs/bundle/release/app-release.aab 2>/dev/null)
             echo "✅ AAB built ($SIZE bytes)"
           else
             echo "❌ AAB build failed"
