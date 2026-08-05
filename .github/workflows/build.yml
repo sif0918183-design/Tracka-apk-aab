@@ -26,28 +26,64 @@ jobs:
         run: flutter pub get
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ إنشاء google-services.json (الإصدار الآمن)
+      # ============================================
       - name: Create google-services.json
         run: |
           mkdir -p android/app/src/main
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/src/main/google-services.json
-          echo "✅ google-services.json created"
+          # استخدام printf بدلاً من echo لتجنب مشاكل الأحرف الخاصة
+          printf '%s' "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/src/main/google-services.json
+          
+          # التحقق من وجود الملف
+          if [ -f android/app/src/main/google-services.json ]; then
+            SIZE=$(stat -c%s android/app/src/main/google-services.json)
+            echo "✅ google-services.json created ($SIZE bytes)"
+            echo "📄 First 3 lines:"
+            head -n 3 android/app/src/main/google-services.json
+          else
+            echo "❌ Failed to create google-services.json"
+            exit 1
+          fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ فك تشفير Keystore
+      # ============================================
       - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+        run: |
+          printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+          
+          if [ -f android/upload-keystore.jks ]; then
+            SIZE=$(stat -c%s android/upload-keystore.jks)
+            echo "✅ Keystore created ($SIZE bytes)"
+          else
+            echo "❌ Failed to create keystore"
+            exit 1
+          fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ إنشاء key.properties
+      # ============================================
       - name: Create key.properties
         run: |
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
           echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
           echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "✅ key.properties created"
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Generate App Icons
+      # ============================================
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Build APK
+      # ============================================
       - name: Build APK
         run: |
           flutter clean
@@ -55,15 +91,37 @@ jobs:
           flutter build apk --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            SIZE=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk)
+            echo "✅ APK built ($SIZE bytes)"
+          else
+            echo "❌ APK build failed"
+            exit 1
+          fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Build AAB
+      # ============================================
       - name: Build AAB
         run: |
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            SIZE=$(stat -c%s build/app/outputs/bundle/release/app-release.aab)
+            echo "✅ AAB built ($SIZE bytes)"
+          else
+            echo "❌ AAB build failed"
+            exit 1
+          fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Upload APK to Supabase
+      # ============================================
       - name: Upload APK to Supabase
         if: success()
         run: |
@@ -71,6 +129,7 @@ jobs:
           BUILD_NUM="${{ github.run_number }}"
           APK_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.apk"
           
+          echo "📤 Uploading APK to Supabase..."
           curl -X POST \
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$APK_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -79,7 +138,11 @@ jobs:
           
           echo "✅ APK uploaded"
           echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$APK_NAME"
+        working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Upload AAB to Supabase
+      # ============================================
       - name: Upload AAB to Supabase
         if: success()
         run: |
@@ -87,6 +150,7 @@ jobs:
           BUILD_NUM="${{ github.run_number }}"
           AAB_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.aab"
           
+          echo "📤 Uploading AAB to Supabase..."
           curl -X POST \
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$AAB_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -95,3 +159,4 @@ jobs:
           
           echo "✅ AAB uploaded"
           echo "📥 ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/apk-builds/$AAB_NAME"
+        working-directory: pwa_to_flutter_app
