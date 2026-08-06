@@ -13,11 +13,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -34,18 +32,9 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="whatsapp" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" android:host="wa.me" />
         </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" android:host="api.whatsapp.com" />
-        </intent>
         <package android:name="com.whatsapp" />
-        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <application
@@ -128,7 +117,6 @@
         <!-- ========================================== -->
         <!-- ✅ خدمة الخلفية (Foreground Service)       -->
         <!-- ========================================== -->
-        <!-- تم دمج الخدمتين في تعريف واحد -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="specialUse|dataSync"
@@ -171,11 +159,6 @@
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
             android:resource="@mipmap/ic_launcher" />
-        
-        <!-- لون الإشعارات الافتراضي -->
-        <meta-data 
-            android:name="com.google.firebase.messaging.default_notification_color" 
-            android:resource="@color/notification_color" />
 
         <!-- ========================================== -->
         <!-- ✅ إعدادات الإشعارات المحلية               -->
