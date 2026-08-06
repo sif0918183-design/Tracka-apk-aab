@@ -16,8 +16,6 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-
-    <!-- ✅ أذونات إضافية للإشعارات -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
@@ -108,15 +106,6 @@
             </intent-filter>
         </service>
 
-        <!-- خدمة Instance ID (لتوليد التوكن) -->
-        <service
-            android:name="com.google.firebase.INSTANCE_ID_EVENT"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.INSTANCE_ID_EVENT" />
-            </intent-filter>
-        </service>
-
         <!-- ========================================== -->
         <!-- ✅ خدمات الإشعارات المحلية                  -->
         <!-- ========================================== -->
@@ -139,19 +128,15 @@
         <!-- ========================================== -->
         <!-- ✅ خدمة الخلفية (Foreground Service)       -->
         <!-- ========================================== -->
+        <!-- تم دمج الخدمتين في تعريف واحد -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
-            android:foregroundServiceType="specialUse"
+            android:foregroundServiceType="specialUse|dataSync"
             android:exported="false">
             <property
                 android:name="android.foreground_service_type_special_use"
                 android:value="tracka_background_service" />
         </service>
-
-        <service
-            android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
 
         <!-- ========================================== -->
         <!-- ✅ InAppWebView                            -->
