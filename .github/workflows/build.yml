@@ -26,28 +26,53 @@ jobs:
         run: flutter pub get
         working-directory: pwa_to_flutter_app
 
-      - name: Create google-services.json
+      # ============================================
+      # ✅ google-services.json - من الملف في المستودع
+      # ============================================
+      - name: Verify google-services.json exists
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/src/main/google-services.json
+          echo "🔍 Checking for google-services.json..."
           if [ -f android/app/src/main/google-services.json ]; then
-            echo "✅ google-services.json created"
+            SIZE=$(stat -c%s android/app/src/main/google-services.json)
+            echo "✅ google-services.json found ($SIZE bytes)"
+            echo "📄 First 3 lines:"
+            head -n 3 android/app/src/main/google-services.json
+          elif [ -f android/app/google-services.json ]; then
+            SIZE=$(stat -c%s android/app/google-services.json)
+            echo "✅ google-services.json found at fallback path ($SIZE bytes)"
+            # نسخ إلى المسار الصحيح
+            mkdir -p android/app/src/main
+            cp android/app/google-services.json android/app/src/main/google-services.json
+            echo "✅ Copied to src/main/"
           else
-            echo "❌ Failed to create google-services.json"
+            echo "❌ google-services.json not found in repository!"
+            echo "📁 Expected path: android/app/src/main/google-services.json"
+            echo "📁 Or: android/app/google-services.json"
+            echo ""
+            echo "📝 Please add google-services.json to the repository"
+            echo "   (removed from .gitignore for testing)"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Decode Keystore (يبقى من الأسرار)
+      # ============================================
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
           if [ -f android/upload-keystore.jks ]; then
-            echo "✅ Keystore created"
+            SIZE=$(stat -c%s android/upload-keystore.jks)
+            echo "✅ Keystore created ($SIZE bytes)"
           else
             echo "❌ Failed to create keystore"
             exit 1
           fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Create key.properties (يبقى من الأسرار)
+      # ============================================
       - name: Create key.properties
         run: |
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
@@ -56,12 +81,19 @@ jobs:
           echo "✅ key.properties created"
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Generate App Icons
+      # ============================================
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons || echo "Icons generation skipped"
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Build APK
+      # ============================================
       - name: Build APK
         run: |
+          echo "📦 Building APK..."
           flutter clean
           flutter pub get
           flutter build apk --release \
@@ -70,7 +102,8 @@ jobs:
           
           # التحقق من وجود APK
           if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            echo "✅ APK built successfully"
+            SIZE=$(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)
+            echo "✅ APK built successfully ($SIZE)"
             ls -la build/app/outputs/flutter-apk/
           else
             echo "❌ APK build failed - file not found"
@@ -80,15 +113,20 @@ jobs:
           fi
         working-directory: pwa_to_flutter_app
 
+      # ============================================
+      # ✅ Build AAB
+      # ============================================
       - name: Build AAB
         run: |
+          echo "📦 Building AAB..."
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           
           # التحقق من وجود AAB
           if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
-            echo "✅ AAB built successfully"
+            SIZE=$(du -h build/app/outputs/bundle/release/app-release.aab | cut -f1)
+            echo "✅ AAB built successfully ($SIZE)"
             ls -la build/app/outputs/bundle/release/
           else
             echo "❌ AAB build failed - file not found"
@@ -96,12 +134,14 @@ jobs:
           fi
         working-directory: pwa_to_flutter_app
 
-      # ✅ رفع APK إلى Supabase
+      # ============================================
+      # ✅ Upload APK to Supabase
+      # ============================================
       - name: Upload APK to Supabase
         if: success()
         run: |
           # التحقق من وجود الملف قبل الرفع
-          if [ ! -f pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk ]; then
+          if [ ! -f build/app/outputs/flutter-apk/app-release.apk ]; then
             echo "❌ APK file not found for upload"
             exit 1
           fi
@@ -115,7 +155,7 @@ jobs:
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$APK_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@pwa_to_flutter_app/build/app/outputs/flutter-apk/app-release.apk"
+            --data-binary "@build/app/outputs/flutter-apk/app-release.apk"
           
           if [ $? -eq 0 ]; then
             echo "✅ APK uploaded successfully"
@@ -124,13 +164,16 @@ jobs:
             echo "❌ APK upload failed"
             exit 1
           fi
+        working-directory: pwa_to_flutter_app
 
-      # ✅ رفع AAB إلى Supabase
+      # ============================================
+      # ✅ Upload AAB to Supabase
+      # ============================================
       - name: Upload AAB to Supabase
         if: success()
         run: |
           # التحقق من وجود الملف قبل الرفع
-          if [ ! -f pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab ]; then
+          if [ ! -f build/app/outputs/bundle/release/app-release.aab ]; then
             echo "❌ AAB file not found for upload"
             exit 1
           fi
@@ -144,7 +187,7 @@ jobs:
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$AAB_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@pwa_to_flutter_app/build/app/outputs/bundle/release/app-release.aab"
+            --data-binary "@build/app/outputs/bundle/release/app-release.aab"
           
           if [ $? -eq 0 ]; then
             echo "✅ AAB uploaded successfully"
@@ -153,3 +196,33 @@ jobs:
             echo "❌ AAB upload failed"
             exit 1
           fi
+        working-directory: pwa_to_flutter_app
+
+      # ============================================
+      # ✅ ملخص البناء
+      # ============================================
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "========================================="
+          echo "📊 BUILD SUMMARY"
+          echo "========================================="
+          echo ""
+          echo "📁 APK:"
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            SIZE=$(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)
+            echo "  ✅ app-release.apk ($SIZE)"
+          else
+            echo "  ❌ app-release.apk (not found)"
+          fi
+          echo ""
+          echo "📁 AAB:"
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            SIZE=$(du -h build/app/outputs/bundle/release/app-release.aab | cut -f1)
+            echo "  ✅ app-release.aab ($SIZE)"
+          else
+            echo "  ❌ app-release.aab (not found)"
+          fi
+          echo ""
+          echo "========================================="
+        working-directory: pwa_to_flutter_app
