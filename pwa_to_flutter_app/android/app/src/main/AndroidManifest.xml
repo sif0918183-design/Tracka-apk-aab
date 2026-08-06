@@ -13,9 +13,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -32,9 +32,18 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="whatsapp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" android:host="wa.me" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="api.whatsapp.com" />
+        </intent>
         <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <application
@@ -48,9 +57,7 @@
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true">
 
-        <!-- ========================================== -->
-        <!-- ✅ النشاط الرئيسي                          -->
-        <!-- ========================================== -->
+        <!-- ✅ النشاط الرئيسي -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -83,10 +90,8 @@
         </activity>
 
         <!-- ========================================== -->
-        <!-- ✅ خدمات Firebase Messaging                -->
+        <!-- ✅ خدمة Firebase Messaging (المضافة)      -->
         <!-- ========================================== -->
-        
-        <!-- خدمة Firebase Messaging الأساسية -->
         <service
             android:name="com.google.firebase.messaging.FirebaseMessagingService"
             android:exported="false">
@@ -95,28 +100,12 @@
             </intent-filter>
         </service>
 
-        <!-- ========================================== -->
-        <!-- ✅ خدمات الإشعارات المحلية                  -->
-        <!-- ========================================== -->
+        <!-- ✅ خدمات الإشعارات المحلية -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
             android:exported="false" />
 
-        <receiver
-            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
-            android:exported="false" />
-
-        <receiver
-            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- ========================================== -->
-        <!-- ✅ خدمة الخلفية (Foreground Service)       -->
-        <!-- ========================================== -->
+        <!-- ✅ خدمة الخلفية -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="specialUse|dataSync"
@@ -126,9 +115,7 @@
                 android:value="tracka_background_service" />
         </service>
 
-        <!-- ========================================== -->
-        <!-- ✅ InAppWebView                            -->
-        <!-- ========================================== -->
+        <!-- ✅ InAppWebView -->
         <activity
             android:name="com.pichillilorenzo.flutter_inappwebview.InAppBrowserActivity"
             android:exported="false"
@@ -139,30 +126,19 @@
             android:exported="false">
         </activity>
 
-        <!-- ========================================== -->
-        <!-- ✅ Flutter Embedding                      -->
-        <!-- ========================================== -->
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
+        <!-- ✅ Flutter Embedding -->
+        <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ========================================== -->
-        <!-- ✅ إعدادات Firebase Messaging              -->
-        <!-- ========================================== -->
-        
-        <!-- قناة الإشعارات الافتراضية للطوارئ -->
+        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
             android:value="emergency_channel_v11" />
         
-        <!-- أيقونة الإشعارات الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
             android:resource="@mipmap/ic_launcher" />
 
-        <!-- ========================================== -->
-        <!-- ✅ إعدادات الإشعارات المحلية               -->
-        <!-- ========================================== -->
+        <!-- ✅ إعدادات الإشعارات المحلية -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
             android:value="emergency_channel_v11" />
