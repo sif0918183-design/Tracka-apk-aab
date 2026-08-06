@@ -15,9 +15,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
-    
-    <!-- ✅ أذونات إضافية للإشعارات -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- ✅ أذونات إضافية للإشعارات -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -59,7 +61,9 @@
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true">
 
-        <!-- ✅ النشاط الرئيسي -->
+        <!-- ========================================== -->
+        <!-- ✅ النشاط الرئيسي                          -->
+        <!-- ========================================== -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -91,41 +95,118 @@
 
         </activity>
 
-        <!-- ✅ خدمات الإشعارات -->
+        <!-- ========================================== -->
+        <!-- ✅ خدمات Firebase Messaging                -->
+        <!-- ========================================== -->
+        
+        <!-- خدمة Firebase Messaging الأساسية -->
+        <service
+            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- خدمة Instance ID (لتوليد التوكن) -->
+        <service
+            android:name="com.google.firebase.INSTANCE_ID_EVENT"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.INSTANCE_ID_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- ========================================== -->
+        <!-- ✅ خدمات الإشعارات المحلية                  -->
+        <!-- ========================================== -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
             android:exported="false" />
 
-        <!-- ✅ خدمة الخلفية -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ========================================== -->
+        <!-- ✅ خدمة الخلفية (Foreground Service)       -->
+        <!-- ========================================== -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.foreground_service_type_special_use"
+                android:value="tracka_background_service" />
+        </service>
+
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
-        <!-- ✅ InAppWebView -->
+        <!-- ========================================== -->
+        <!-- ✅ InAppWebView                            -->
+        <!-- ========================================== -->
         <activity
             android:name="com.pichillilorenzo.flutter_inappwebview.InAppBrowserActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- ✅ Flutter Embedding -->
-        <meta-data android:name="flutterEmbedding" android:value="2" />
+        <activity
+            android:name="com.pichillilorenzo.flutter_inappwebview.ChromeCustomTabsActivity"
+            android:exported="false">
+        </activity>
+
+        <!-- ========================================== -->
+        <!-- ✅ Flutter Embedding                      -->
+        <!-- ========================================== -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
         
-        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
+        <!-- ========================================== -->
+        <!-- ✅ إعدادات Firebase Messaging              -->
+        <!-- ========================================== -->
+        
+        <!-- قناة الإشعارات الافتراضية للطوارئ -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
             android:value="emergency_channel_v11" />
         
+        <!-- أيقونة الإشعارات الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
             android:resource="@mipmap/ic_launcher" />
-
-        <!-- ❌ تم إزالة هذا السطر لأنه يسبب خطأ -->
-        <!-- 
+        
+        <!-- لون الإشعارات الافتراضي -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_color" 
             android:resource="@color/notification_color" />
-        -->
+
+        <!-- ========================================== -->
+        <!-- ✅ إعدادات الإشعارات المحلية               -->
+        <!-- ========================================== -->
+        <meta-data
+            android:name="flutter_local_notifications.default_channel_id"
+            android:value="emergency_channel_v11" />
+
+        <meta-data
+            android:name="flutter_local_notifications.default_channel_name"
+            android:value="تنبيهات الطوارئ - تراكا" />
+
+        <meta-data
+            android:name="flutter_local_notifications.default_channel_description"
+            android:value="قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي" />
 
     </application>
+
 </manifest>
