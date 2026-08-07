@@ -230,6 +230,65 @@ class MyTaskHandler extends TaskHandler {
   Future<void> onDestroy(DateTime timestamp) async {}
 }
 
+// ✅ دالة تفصيلية لتشخيص وتجريب الحصول على توكن FCM مع تسجيل logs دقيقة
+Future<void> diagnoseAndFetchFCMToken() async {
+  print('🔍 [FCM Diagnostic] Starting detailed diagnostics...');
+  try {
+    final app = Firebase.app();
+    print('ℹ️ [FCM Diagnostic] Firebase App Name: ${app.name}');
+    print('ℹ️ [FCM Diagnostic] Project ID: ${app.options.projectId}');
+    print('ℹ️ [FCM Diagnostic] Sender ID (Project Number): ${app.options.messagingSenderId}');
+    print('ℹ️ [FCM Diagnostic] Application ID: ${app.options.appId}');
+    print('ℹ️ [FCM Diagnostic] API Key length: ${app.options.apiKey.length}');
+  } catch (e, stack) {
+    print('❌ [FCM Diagnostic] Error reading Firebase Options: $e');
+    print(stack);
+  }
+
+  try {
+    print('🔍 [FCM Diagnostic] Requesting Firebase Messaging permission...');
+    NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    print('ℹ️ [FCM Diagnostic] Permission status: ${settings.authorizationStatus}');
+  } catch (e, stack) {
+    print('❌ [FCM Diagnostic] Error requesting permission: $e');
+    print(stack);
+  }
+
+  try {
+    print('🔍 [FCM Diagnostic] Enabling FCM Auto-Init...');
+    await FirebaseMessaging.instance.setAutoInitEnabled(true);
+    print('✅ [FCM Diagnostic] FCM Auto-Init enabled successfully');
+  } catch (e, stack) {
+    print('❌ [FCM Diagnostic] Error enabling Auto-Init: $e');
+    print(stack);
+  }
+
+  try {
+    print('🔍 [FCM Diagnostic] Attempting to fetch FCM Token...');
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null && token.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fcm_token', token);
+      print('✅ [FCM Diagnostic] SUCCESS! Token generated: $token');
+      print('✅ [FCM Diagnostic] Token Preview: ${token.substring(0, token.length > 30 ? 30 : token.length)}...');
+    } else {
+      print('⚠️ [FCM Diagnostic] Firebase returned NULL for FCM token');
+    }
+  } on FirebaseException catch (e, stack) {
+    print('❌ [FCM Diagnostic] FirebaseException code: ${e.code}');
+    print('❌ [FCM Diagnostic] FirebaseException message: ${e.message}');
+    print('❌ [FCM Diagnostic] FirebaseException details: ${e.toString()}');
+    print(stack);
+  } catch (e, stack) {
+    print('❌ [FCM Diagnostic] Generic error fetching FCM Token: $e');
+    print(stack);
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -237,19 +296,28 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ التحقق من التوكن فور بدء التطبيق
+  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
   try {
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', token);
-      print('✅ [Flutter] Initial token stored: ${token.substring(0, 20)}...');
-    } else {
-      print('⚠️ [Flutter] No initial token available');
+    print('🔍 [Flutter] Requesting foreground permissions on startup...');
+    await [
+      Permission.notification,
+      Permission.location,
+      Permission.camera,
+      Permission.ignoreBatteryOptimizations,
+    ].request();
+
+    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
+    if (await Permission.location.isGranted) {
+      print('🔍 [Flutter] Requesting background location permission...');
+      await Permission.locationAlways.request();
     }
+    print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
-    print('❌ [Flutter] Error getting initial token: $e');
+    print('❌ [Flutter] Error requesting permissions on startup: $e');
   }
+
+  // ✅ تشخيص الـ FCM وجلب التوكن بعد الحصول على الأذونات
+  await diagnoseAndFetchFCMToken();
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -265,14 +333,6 @@ Future<void> main() async {
     anonKey: supabaseAnonKey,
   );
 
-  await [
-    Permission.notification,
-    Permission.location,
-    Permission.locationAlways,
-    Permission.camera,
-    Permission.ignoreBatteryOptimizations,
-  ].request();
-  
   _initForegroundTask();
   runApp(const DriverApp());
 }
