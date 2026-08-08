@@ -159,7 +159,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -199,8 +198,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
-          fullScreenIntent: true,
-          category: fln.AndroidNotificationCategory.call,
+          autoCancel: false,
           playSound: true,
           enableVibration: true,
           additionalFlags: Int32List.fromList([4]),
@@ -712,8 +710,7 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
-            fullScreenIntent: true,
-            category: fln.AndroidNotificationCategory.call,
+            autoCancel: false,
             playSound: true,
             enableVibration: true,
             additionalFlags: Int32List.fromList([4]),
