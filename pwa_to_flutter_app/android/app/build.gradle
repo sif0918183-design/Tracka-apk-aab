@@ -66,11 +66,6 @@ android {
         versionName flutterVersionName
 
         multiDexEnabled true
-
-        manifestPlaceholders = [
-            onesignal_app_id: "c05c5d16-4e72-4d4a-b1a2-6e7e06232d98",
-            onesignal_google_project_number: "REMOTE"
-        ]
     }
 
     buildTypes {
@@ -85,9 +80,6 @@ dependencies {
     
     // إضافة مكتبة MultiDex لضمان عدم حدوث خطأ أثناء التجميع
     implementation 'androidx.multidex:multidex:2.0.1'
-    
-    // ملاحظة: مكتبة OneSignal يتم جلبها تلقائياً عبر Flutter Plugin 
-    // لذا لا داعي لإضافتها يدوياً هنا لتجنب التعارض (Conflict)
 }
 
 flutter {

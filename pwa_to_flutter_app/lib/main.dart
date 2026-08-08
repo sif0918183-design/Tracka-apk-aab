@@ -237,7 +237,27 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ التحقق من التوكن فور بدء التطبيق
+  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
+  try {
+    print('🔍 [Flutter] Requesting foreground permissions on startup...');
+    await [
+      Permission.notification,
+      Permission.location,
+      Permission.camera,
+      Permission.ignoreBatteryOptimizations,
+    ].request();
+
+    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
+    if (await Permission.location.isGranted) {
+      print('🔍 [Flutter] Requesting background location permission...');
+      await Permission.locationAlways.request();
+    }
+    print('✅ [Flutter] Permissions sequence processed successfully');
+  } catch (e) {
+    print('❌ [Flutter] Error requesting permissions on startup: $e');
+  }
+
+  // ✅ التحقق من التوكن وجلبه فوراً بعد الحصول على الأذونات
   try {
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null && token.isNotEmpty) {
@@ -265,14 +285,6 @@ Future<void> main() async {
     anonKey: supabaseAnonKey,
   );
 
-  await [
-    Permission.notification,
-    Permission.location,
-    Permission.locationAlways,
-    Permission.camera,
-    Permission.ignoreBatteryOptimizations,
-  ].request();
-  
   _initForegroundTask();
   runApp(const DriverApp());
 }

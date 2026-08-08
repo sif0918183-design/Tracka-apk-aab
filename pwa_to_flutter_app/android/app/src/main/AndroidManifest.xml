@@ -89,17 +89,6 @@
 
         </activity>
 
-        <!-- ========================================== -->
-        <!-- ✅ خدمة Firebase Messaging (المضافة)      -->
-        <!-- ========================================== -->
-        <service
-            android:name="com.google.firebase.messaging.FirebaseMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
         <!-- ✅ خدمات الإشعارات المحلية -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
