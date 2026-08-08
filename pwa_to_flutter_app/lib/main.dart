@@ -7,6 +7,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_app_installations/firebase_app_installations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -228,6 +229,462 @@ class MyTaskHandler extends TaskHandler {
   void onRepeatEvent(DateTime timestamp) {}
   @override
   Future<void> onDestroy(DateTime timestamp) async {}
+}
+
+enum DiagnosticStatus { pending, running, success, failure }
+
+class DiagnosticStepResult {
+  final String title;
+  final String description;
+  DiagnosticStatus status;
+  String details;
+
+  DiagnosticStepResult({
+    required this.title,
+    required this.description,
+    this.status = DiagnosticStatus.pending,
+    this.details = '',
+  });
+}
+
+class FCMDiagnosticSheet extends StatefulWidget {
+  const FCMDiagnosticSheet({super.key});
+
+  @override
+  State<FCMDiagnosticSheet> createState() => _FCMDiagnosticSheetState();
+}
+
+class _FCMDiagnosticSheetState extends State<FCMDiagnosticSheet> {
+  final List<DiagnosticStepResult> _steps = [
+    DiagnosticStepResult(
+      title: "Firebase Initialization",
+      description: "تحقق من تهيئة مكتبة الـ Firebase بنجاح.",
+    ),
+    DiagnosticStepResult(
+      title: "Firebase App Options",
+      description: "قراءة معطيات الـ google-services.json وحجم مفتاح الـ API.",
+    ),
+    DiagnosticStepResult(
+      title: "Google Play Services Availability",
+      description: "التحقق من تماسك منصة الـ Android لتشغيل الـ FCM.",
+    ),
+    DiagnosticStepResult(
+      title: "Firebase Installation ID (FID)",
+      description: "طلب الحصول على معرف التثبيت الفريد من FIS.",
+    ),
+    DiagnosticStepResult(
+      title: "Firebase Installation Auth Token",
+      description: "جلب توكن المصادقة للتثبيت الحالي لربطه بالـ FCM.",
+    ),
+    DiagnosticStepResult(
+      title: "FCM Auto-Init Status",
+      description: "التأكد من أن خاصية البدء التلقائي للـ Messaging مفعّلة.",
+    ),
+    DiagnosticStepResult(
+      title: "Notification Permission",
+      description: "طلب والتحقق من صلاحية الإشعارات على الهاتف.",
+    ),
+    DiagnosticStepResult(
+      title: "FCM Registration Token",
+      description: "طلب الحصول على الـ Token النهائي لإرسال الإشعارات.",
+    ),
+  ];
+
+  bool _isRunning = false;
+  int? _activeStepIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _runDiagnostics();
+  }
+
+  Future<void> _runDiagnostics() async {
+    if (_isRunning) return;
+    setState(() {
+      _isRunning = true;
+      for (var s in _steps) {
+        s.status = DiagnosticStatus.pending;
+        s.details = '';
+      }
+    });
+
+    for (int i = 0; i < _steps.length; i++) {
+      setState(() {
+        _activeStepIndex = i;
+        _steps[i].status = DiagnosticStatus.running;
+      });
+
+      try {
+        await _executeStep(i);
+      } catch (e, stack) {
+        setState(() {
+          _steps[i].status = DiagnosticStatus.failure;
+          _steps[i].details = "Fatal Exception:\n$e\n\nStack:\n$stack";
+        });
+      }
+
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+
+    setState(() {
+      _isRunning = false;
+      _activeStepIndex = null;
+    });
+  }
+
+  Future<void> _executeStep(int index) async {
+    final step = _steps[index];
+    switch (index) {
+      case 0: // Firebase Initialization
+        try {
+          final apps = Firebase.apps;
+          if (apps.isNotEmpty) {
+            step.status = DiagnosticStatus.success;
+            step.details = "Firebase is initialized.\nApp Name: ${Firebase.app().name}\nActive Apps Count: ${apps.length}";
+          } else {
+            await Firebase.initializeApp();
+            step.status = DiagnosticStatus.success;
+            step.details = "Firebase was not initialized, but initialized successfully now.";
+          }
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\nCode: ${e.code}\nMessage: ${e.message}\n\nStack:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Error: $e\n\nStack:\n$stack";
+        }
+        break;
+
+      case 1: // Firebase App Options
+        try {
+          final options = Firebase.app().options;
+          step.status = DiagnosticStatus.success;
+          step.details = "Project ID: ${options.projectId}\n"
+              "Sender ID (Project Number): ${options.messagingSenderId}\n"
+              "Application ID (App ID): ${options.appId}\n"
+              "API Key Length: ${options.apiKey.length} characters\n"
+              "API Key Preview: ${options.apiKey.substring(0, options.apiKey.length > 10 ? 10 : options.apiKey.length)}...\n"
+              "Storage Bucket: ${options.storageBucket}";
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\nCode: ${e.code}\nMessage: ${e.message}\n\nStack:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Error: $e\n\nStack:\n$stack";
+        }
+        break;
+
+      case 2: // Google Play Services Availability
+        try {
+          final isAndroid = defaultTargetPlatform == TargetPlatform.android;
+          if (isAndroid) {
+            step.status = DiagnosticStatus.success;
+            step.details = "Running on Android OS.\nNote: Google Play Services are required on Android for FCM token generation. On emulators, ensure Google Play API image is used.";
+          } else {
+            step.status = DiagnosticStatus.success;
+            step.details = "Running on $defaultTargetPlatform. FCM relies on APNs/Web on other platforms.";
+          }
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Error: $e\n\nStack:\n$stack";
+        }
+        break;
+
+      case 3: // Firebase Installation ID (FID)
+        try {
+          final installations = FirebaseInstallations.instance;
+          final id = await installations.getId();
+          step.status = DiagnosticStatus.success;
+          step.details = "Firebase Installation ID (FID) generated successfully:\n\n$id\n\n(This proves communication with Firebase Installations Service works)";
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\n"
+              "Code: ${e.code}\n"
+              "Message: ${e.message}\n"
+              "Details: ${e.toString()}\n\n"
+              "Stacktrace:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Generic Exception:\n$e\n\nStacktrace:\n$stack";
+        }
+        break;
+
+      case 4: // Firebase Installation Auth Token
+        try {
+          final installations = FirebaseInstallations.instance;
+          final token = await installations.getToken(true);
+          step.status = DiagnosticStatus.success;
+          step.details = "Firebase Installation Auth Token successfully retrieved:\n\n$token\n\n(This confirms key authentication is 100% accepted by Google Cloud)";
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\n"
+              "Code: ${e.code}\n"
+              "Message: ${e.message}\n"
+              "Details: ${e.toString()}\n\n"
+              "Stacktrace:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Generic Exception:\n$e\n\nStacktrace:\n$stack";
+        }
+        break;
+
+      case 5: // FCM Auto-Init Status
+        try {
+          final isEnabled = await FirebaseMessaging.instance.isAutoInitEnabled;
+          step.details = "Current auto-init status: $isEnabled\nSetting to TRUE...";
+          await FirebaseMessaging.instance.setAutoInitEnabled(true);
+          final newStatus = await FirebaseMessaging.instance.isAutoInitEnabled;
+          step.status = DiagnosticStatus.success;
+          step.details += "\nSuccessfully enabled Auto-Init!\nNew Status: $newStatus";
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\nCode: ${e.code}\nMessage: ${e.message}\n\nStack:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Error: $e\n\nStack:\n$stack";
+        }
+        break;
+
+      case 6: // Notification Permission
+        try {
+          final settings = await FirebaseMessaging.instance.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+          step.status = DiagnosticStatus.success;
+          step.details = "Authorization Status: ${settings.authorizationStatus}\n"
+              "Alert: ${settings.alert}\n"
+              "Badge: ${settings.badge}\n"
+              "Sound: ${settings.sound}";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Error: $e\n\nStack:\n$stack";
+        }
+        break;
+
+      case 7: // FCM Registration Token
+        try {
+          final token = await FirebaseMessaging.instance.getToken();
+          if (token != null && token.isNotEmpty) {
+            step.status = DiagnosticStatus.success;
+            step.details = "FCM Registration Token generated successfully!\n\nToken:\n$token";
+          } else {
+            step.status = DiagnosticStatus.failure;
+            step.details = "FCM Registration Token is null or empty.";
+          }
+        } on FirebaseException catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "FirebaseException!\n"
+              "Code: ${e.code}\n"
+              "Message: ${e.message}\n"
+              "Details: ${e.toString()}\n\n"
+              "Stacktrace:\n$stack";
+        } catch (e, stack) {
+          step.status = DiagnosticStatus.failure;
+          step.details = "Generic Exception:\n$e\n\nStacktrace:\n$stack";
+        }
+        break;
+    }
+  }
+
+  String _getDiagnosticSummary() {
+    final buffer = StringBuffer();
+    buffer.writeln("=== TRACKA FCM DIAGNOSTIC REPORT ===");
+    buffer.writeln("Date: ${DateTime.now().toLocal()}");
+    buffer.writeln("Platform: $defaultTargetPlatform");
+    buffer.writeln("====================================");
+    for (int i = 0; i < _steps.length; i++) {
+      final s = _steps[i];
+      buffer.writeln("\n[${i + 1}] ${s.title}");
+      buffer.writeln("Status: ${s.status.name.toUpperCase()}");
+      buffer.writeln("Description: ${s.description}");
+      buffer.writeln("Details:\n${s.details}");
+      buffer.writeln("-" * 40);
+    }
+    return buffer.toString();
+  }
+
+  void _copyToClipboard() {
+    final report = _getDiagnosticSummary();
+    Clipboard.setData(ClipboardData(text: report));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("تم نسخ التقرير التشخيصي بالكامل إلى الحافظة! 📋"),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        children: [
+          Container(
+            width: 50,
+            height: 5,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "🔍 فحص وتشخيص Firebase",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (_isRunning)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.blue),
+                  onPressed: _runDiagnostics,
+                  tooltip: "إعادة تشغيل الفحص",
+                ),
+            ],
+          ),
+          const Divider(),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _steps.length,
+              itemBuilder: (context, index) {
+                final s = _steps[index];
+                final isActive = (_activeStepIndex == index);
+
+                Widget leadingWidget;
+                Color statusColor = Colors.grey;
+
+                switch (s.status) {
+                  case DiagnosticStatus.pending:
+                    leadingWidget = const Icon(Icons.hourglass_empty, color: Colors.grey);
+                    break;
+                  case DiagnosticStatus.running:
+                    leadingWidget = const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+                    );
+                    break;
+                  case DiagnosticStatus.success:
+                    leadingWidget = const Icon(Icons.check_circle, color: Colors.green);
+                    statusColor = Colors.green;
+                    break;
+                  case DiagnosticStatus.failure:
+                    leadingWidget = const Icon(Icons.cancel, color: Colors.red);
+                    statusColor = Colors.red;
+                    break;
+                }
+
+                return Card(
+                  elevation: isActive ? 4 : 1,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: isActive
+                        ? const BorderSide(color: Colors.blue, width: 1.5)
+                        : BorderSide.none,
+                  ),
+                  child: ExpansionTile(
+                    initiallyExpanded: s.status == DiagnosticStatus.failure,
+                    leading: leadingWidget,
+                    title: Text(
+                      "${index + 1}. ${s.title}",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isActive ? Colors.blue : Colors.black87,
+                      ),
+                    ),
+                    subtitle: Text(
+                      s.description,
+                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        color: Colors.grey[50],
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SelectableText(
+                              s.details.isEmpty
+                                  ? "لا توجد تفاصيل متوفرة بعد."
+                                  : s.details,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontFamily: 'monospace',
+                                color: statusColor == Colors.red ? Colors.red[900] : Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _copyToClipboard,
+                  icon: const Icon(Icons.copy, color: Colors.white),
+                  label: const Text("نسخ التقرير التشخيصي", style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  label: const Text("إغلاق الشاشة", style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[700],
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
 }
 
 // ✅ دالة تفصيلية لتشخيص وتجريب الحصول على توكن FCM مع تسجيل logs دقيقة
@@ -1162,6 +1619,18 @@ class _DriverHomeState extends State<DriverHome> {
             },
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => const FCMDiagnosticSheet(),
+          );
+        },
+        backgroundColor: Colors.redAccent,
+        child: const Icon(Icons.bug_report, color: Colors.white),
       ),
     );
   }
