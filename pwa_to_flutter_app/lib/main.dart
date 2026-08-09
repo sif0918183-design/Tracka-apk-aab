@@ -28,7 +28,7 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v11';
+const String _emergencyChannelId = 'emergency_channel_v15';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -169,48 +169,52 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    await notifications.show(
-      DateTime.now().millisecond, title, body,
-      const fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          'travel_notifications',
-          'إشعارات السفر - تراكا',
-          importance: fln.Importance.high,
-          priority: fln.Priority.high,
-          playSound: true,
-          enableVibration: true,
-          channelShowBadge: true,
-          visibility: fln.NotificationVisibility.public,
+    if (message.notification == null) {
+      await notifications.show(
+        DateTime.now().millisecond, title, body,
+        const fln.NotificationDetails(
+          android: fln.AndroidNotificationDetails(
+            'travel_notifications',
+            'إشعارات السفر - تراكا',
+            importance: fln.Importance.high,
+            priority: fln.Priority.high,
+            playSound: true,
+            enableVibration: true,
+            channelShowBadge: true,
+            visibility: fln.NotificationVisibility.public,
+          ),
         ),
-      ),
-      payload: jsonEncode(data),
-    );
+        payload: jsonEncode(data),
+      );
+    }
   } else if (isRideRequest) {
-    String? rideId = _extractRideId(data);
-    await notifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond,
-      title,
-      body,
-      fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          _emergencyChannelId,
-          _emergencyChannelName,
-          importance: fln.Importance.max,
-          priority: fln.Priority.max,
-          ongoing: true,
-          autoCancel: false,
-          playSound: true,
-          enableVibration: true,
-          additionalFlags: Int32List.fromList([4]),
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-          channelShowBadge: true,
-          visibility: fln.NotificationVisibility.public,
-          timeoutAfter: null,
+    if (message.notification == null) {
+      String? rideId = _extractRideId(data);
+      await notifications.show(
+        rideId?.hashCode ?? DateTime.now().millisecond,
+        title,
+        body,
+        fln.NotificationDetails(
+          android: fln.AndroidNotificationDetails(
+            _emergencyChannelId,
+            _emergencyChannelName,
+            importance: fln.Importance.max,
+            priority: fln.Priority.max,
+            ongoing: true,
+            autoCancel: false,
+            playSound: true,
+            enableVibration: true,
+            additionalFlags: Int32List.fromList([4]),
+            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+            sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+            channelShowBadge: true,
+            visibility: fln.NotificationVisibility.public,
+            timeoutAfter: 30000,
+          ),
         ),
-      ),
-      payload: jsonEncode(data),
-    );
+        payload: jsonEncode(data),
+      );
+    }
   }
 }
 
@@ -718,7 +722,7 @@ class _DriverHomeState extends State<DriverHome> {
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
-            timeoutAfter: null,
+            timeoutAfter: 30000,
           ),
         ),
         payload: jsonEncode(data),
