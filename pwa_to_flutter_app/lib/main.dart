@@ -165,56 +165,52 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await notifications.initialize(const fln.InitializationSettings(android: android));
 
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : ' طلب رحلة جديد');
+  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : 'طلب رحلة جديد');
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    if (message.notification == null) {
-      await notifications.show(
-        DateTime.now().millisecond, title, body,
-        const fln.NotificationDetails(
-          android: fln.AndroidNotificationDetails(
-            'travel_notifications',
-            'إشعارات السفر - تراكا',
-            importance: fln.Importance.high,
-            priority: fln.Priority.high,
-            playSound: true,
-            enableVibration: true,
-            channelShowBadge: true,
-            visibility: fln.NotificationVisibility.public,
-          ),
+    await notifications.show(
+      DateTime.now().millisecond, title, body,
+      const fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          'travel_notifications',
+          'إشعارات السفر - تراكا',
+          importance: fln.Importance.high,
+          priority: fln.Priority.high,
+          playSound: true,
+          enableVibration: true,
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
         ),
-        payload: jsonEncode(data),
-      );
-    }
+      ),
+      payload: jsonEncode(data),
+    );
   } else if (isRideRequest) {
-    if (message.notification == null) {
-      String? rideId = _extractRideId(data);
-      await notifications.show(
-        rideId?.hashCode ?? DateTime.now().millisecond,
-        title,
-        body,
-        fln.NotificationDetails(
-          android: fln.AndroidNotificationDetails(
-            _emergencyChannelId,
-            _emergencyChannelName,
-            importance: fln.Importance.max,
-            priority: fln.Priority.max,
-            ongoing: true,
-            autoCancel: false,
-            playSound: true,
-            enableVibration: true,
-            additionalFlags: Int32List.fromList([4]),
-            vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-            sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-            channelShowBadge: true,
-            visibility: fln.NotificationVisibility.public,
-            timeoutAfter: 30000,
-          ),
+    String? rideId = _extractRideId(data);
+    await notifications.show(
+      rideId?.hashCode ?? DateTime.now().millisecond,
+      title,
+      body,
+      fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          _emergencyChannelId,
+          _emergencyChannelName,
+          importance: fln.Importance.max,
+          priority: fln.Priority.max,
+          ongoing: true,
+          autoCancel: false,
+          playSound: true,
+          enableVibration: true,
+          additionalFlags: Int32List.fromList([4]),
+          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
+          timeoutAfter: 30000,
         ),
-        payload: jsonEncode(data),
-      );
-    }
+      ),
+      payload: jsonEncode(data),
+    );
   }
 }
 
@@ -239,7 +235,6 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
   try {
     print('🔍 [Flutter] Requesting foreground permissions on startup...');
     await [
@@ -249,7 +244,6 @@ Future<void> main() async {
       Permission.ignoreBatteryOptimizations,
     ].request();
 
-    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
     if (await Permission.location.isGranted) {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
@@ -259,7 +253,6 @@ Future<void> main() async {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
   }
 
-  // ✅ التحقق من التوكن وجلبه فوراً بعد الحصول على الأذونات
   try {
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null && token.isNotEmpty) {
@@ -338,7 +331,6 @@ class _DriverHomeState extends State<DriverHome> {
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   
-  // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
 
   @override
@@ -376,7 +368,6 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة
       for (int i = 10; i <= 20; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
@@ -392,7 +383,6 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -405,7 +395,6 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -423,7 +412,6 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
-    // ✅ طلب الأذونات مع إعادة محاولة
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -438,7 +426,6 @@ class _DriverHomeState extends State<DriverHome> {
       sound: false,
     );
     
-    // ✅ الحصول على التوكن وحفظه
     try {
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
@@ -450,7 +437,6 @@ class _DriverHomeState extends State<DriverHome> {
       print('❌ [Flutter] Error getting token: $e');
     }
     
-    // ✅ استمع لتحديث التوكن
     messaging.onTokenRefresh.listen((newToken) async {
       print('🔄 [Flutter] FCM Token refreshed: $newToken');
       
@@ -621,7 +607,6 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت لمدة 30 ثانية فقط
   void _playAlertSound() {
     stopGlobalAlertSound();
     _globalIsAlertPlaying = true;
@@ -655,7 +640,6 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (_) {}
     }
 
-    // ✅ إيقاف تلقائي بعد 30 ثانية
     Future.delayed(const Duration(seconds: _alertDurationSeconds), () {
       print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
       stopGlobalAlertSound();
@@ -705,7 +689,7 @@ class _DriverHomeState extends State<DriverHome> {
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
-        ' طلب رحلة جديد',
+        'طلب رحلة جديد',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
@@ -781,7 +765,7 @@ class _DriverHomeState extends State<DriverHome> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  ' طلب رحلة جديد',
+                  'طلب رحلة جديد',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
@@ -923,7 +907,6 @@ class _DriverHomeState extends State<DriverHome> {
               print('📱 [Flutter] 🚀 WebView Created - Registering Handlers');
               print('📱 [Flutter] ========================================');
               
-              // ✅ Handler 1: Ping (للاختبار)
               controller.addJavaScriptHandler(
                 handlerName: 'ping',
                 callback: (args) {
@@ -932,14 +915,12 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 2: Get FCM Token مع إعادة محاولة
               controller.addJavaScriptHandler(
                 handlerName: 'getFCMToken',
                 callback: (args) async {
                   print('📱 [Flutter] 📞 getFCMToken called from PWA');
                   
                   try {
-                    // 1. طلب الأذونات
                     NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
                       alert: true,
                       badge: true,
@@ -953,7 +934,6 @@ class _DriverHomeState extends State<DriverHome> {
                       return null;
                     }
                     
-                    // 2. محاولة الحصول على التوكن مع إعادة محاولة
                     String? token;
                     for (int i = 0; i < 3; i++) {
                       try {
@@ -982,7 +962,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 3: Get stored token from SharedPreferences (احتياطي)
               controller.addJavaScriptHandler(
                 handlerName: 'getStoredFCMToken',
                 callback: (args) async {
@@ -999,7 +978,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 4: Check FCM status (للتشخيص)
               controller.addJavaScriptHandler(
                 handlerName: 'checkFCMStatus',
                 callback: (args) async {
@@ -1019,7 +997,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 5: Token sync complete
               controller.addJavaScriptHandler(
                 handlerName: 'tokenSyncComplete',
                 callback: (args) {
@@ -1028,7 +1005,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 6: Stop alerts from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
@@ -1038,7 +1014,6 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 7: Stop alerts (alternative name)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
@@ -1048,7 +1023,6 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 8: Driver login from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
@@ -1069,7 +1043,6 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 9: Get driver ID
               controller.addJavaScriptHandler(
                 handlerName: 'getDriverId',
                 callback: (args) {
