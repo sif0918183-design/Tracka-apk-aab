@@ -98,54 +98,6 @@ void stopGlobalAlertSound() {
   print('✅ [GLOBAL] تم إيقاف الصوت والاهتزاز');
 }
 
-// ✅ دالة تشغيل الصوت في الخلفية
-void _playAlertSoundInBackground() {
-  _globalIsAlertPlaying = true;
-  _vibratePhoneBackground();
-
-  try {
-    _globalAudioPlayer = AudioPlayer();
-    _globalAudioPlayer!.setVolume(1.0);
-    _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
-    _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-    
-    _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      if (_globalIsAlertPlaying) {
-        try {
-          if (_globalAudioPlayer?.state == PlayerState.stopped || 
-              _globalAudioPlayer?.state == PlayerState.completed) {
-            await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-          }
-        } catch (_) {}
-      } else {
-        timer.cancel();
-      }
-    });
-  } catch (_) {
-    try {
-      _globalAudioPlayer = AudioPlayer();
-      _globalAudioPlayer!.setVolume(1.0);
-      _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
-      _globalAudioPlayer!.play(AssetSource('ride_request_sound.mp3'));
-    } catch (_) {}
-  }
-  
-  // ✅ إيقاف تلقائي بعد 30 ثانية
-  Future.delayed(Duration(seconds: _alertDurationSeconds), () {
-    print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
-    stopGlobalAlertSound();
-  });
-}
-
-void _vibratePhoneBackground() {
-  try {
-    Vibration.hasVibrator().then((hasVibrator) {
-      if (hasVibrator == true) {
-        Vibration.vibrate(pattern: [0, 500, 300, 500, 300, 500, 300, 500, 300, 500], repeat: 0);
-      }
-    });
-  } catch (_) {}
-}
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -159,7 +111,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
+    // ✅ تم إزالة تشغيل الصوت المتكرر والاهتزاز من الخلفية كآلية برمجية والاعتماد على إشعارات القناة
   }
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
@@ -188,8 +140,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     );
   } else if (isRideRequest) {
     String? rideId = _extractRideId(data);
+    final int notifId = rideId?.hashCode ?? DateTime.now().millisecond;
     await notifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond,
+      notifId,
       title,
       body,
       fln.NotificationDetails(
@@ -199,8 +152,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
-          fullScreenIntent: true,
-          category: fln.AndroidNotificationCategory.call,
           playSound: true,
           enableVibration: true,
           additionalFlags: Int32List.fromList([4]),
@@ -213,6 +164,36 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
+
+    // ✅ الانتظار والاحتفاظ بـ isolate الخلفية نشطاً لضمان تنفيذ تحديث إسكات التنبيه
+    await Future.delayed(const Duration(seconds: _alertDurationSeconds));
+    try {
+      if (rideId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        final bool isDismissed = prefs.getBool('dismissed_$rideId') ?? false;
+        if (isDismissed) return;
+      }
+      await notifications.show(
+        notifId,
+        title,
+        body,
+        const fln.NotificationDetails(
+          android: fln.AndroidNotificationDetails(
+            _emergencyChannelId,
+            _emergencyChannelName,
+            importance: fln.Importance.max,
+            priority: fln.Priority.max,
+            ongoing: true,
+            playSound: false,
+            enableVibration: false,
+            channelShowBadge: true,
+            visibility: fln.NotificationVisibility.public,
+            timeoutAfter: null,
+          ),
+        ),
+        payload: jsonEncode(data),
+      );
+    } catch (_) {}
   }
 }
 
@@ -363,11 +344,19 @@ class _DriverHomeState extends State<DriverHome> {
     const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
-      onDidReceiveNotificationResponse: (details) {
+      onDidReceiveNotificationResponse: (details) async {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
+        if (details.payload != null) {
+          final decoded = jsonDecode(details.payload!);
+          final String? rideId = _extractRideId(decoded);
+          if (rideId != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('dismissed_$rideId', true);
+          }
+          _handleNotificationClick(decoded);
+        }
       }
     );
 
@@ -467,18 +456,28 @@ class _DriverHomeState extends State<DriverHome> {
       }
     });
     
-    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+    FirebaseMessaging.onMessageOpenedApp.listen((message) async {
       stopGlobalAlertSound();
       _overlayEntry?.remove();
       _overlayEntry = null;
+      final String? rideId = _extractRideId(message.data);
+      if (rideId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('dismissed_$rideId', true);
+      }
       _handleNotificationClick(message.data);
     });
     
-    messaging.getInitialMessage().then((message) { 
+    messaging.getInitialMessage().then((message) async {
       if (message != null) {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
+        final String? rideId = _extractRideId(message.data);
+        if (rideId != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('dismissed_$rideId', true);
+        }
         _handleNotificationClick(message.data); 
       }
     });
@@ -700,9 +699,10 @@ class _DriverHomeState extends State<DriverHome> {
       String name = data['customer_name'] ?? 'عميل';
       String amount = data['amount']?.toString() ?? '0';
       String? rideId = _extractRideId(data);
+      final int notifId = rideId?.hashCode ?? DateTime.now().millisecond;
 
       await notifications.show(
-        rideId?.hashCode ?? DateTime.now().millisecond,
+        notifId,
         ' طلب رحلة جديد',
         '$name - $amount SDG',
         fln.NotificationDetails(
@@ -712,8 +712,6 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
-            fullScreenIntent: true,
-            category: fln.AndroidNotificationCategory.call,
             playSound: true,
             enableVibration: true,
             additionalFlags: Int32List.fromList([4]),
@@ -726,6 +724,37 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
+
+      // ✅ إيقاف رنين واهتزاز الإشعار بعد 30 ثانية مع إبقاء الإشعار ثابتاً في الخلفية/الواجهة
+      Future.delayed(const Duration(seconds: _alertDurationSeconds), () async {
+        try {
+          if (rideId != null) {
+            final prefs = await SharedPreferences.getInstance();
+            final bool isDismissed = prefs.getBool('dismissed_$rideId') ?? false;
+            if (isDismissed) return;
+          }
+          await notifications.show(
+            notifId,
+            ' طلب رحلة جديد',
+            '$name - $amount SDG',
+            const fln.NotificationDetails(
+              android: fln.AndroidNotificationDetails(
+                _emergencyChannelId,
+                _emergencyChannelName,
+                importance: fln.Importance.max,
+                priority: fln.Priority.max,
+                ongoing: true,
+                playSound: false,
+                enableVibration: false,
+                channelShowBadge: true,
+                visibility: fln.NotificationVisibility.public,
+                timeoutAfter: null,
+              ),
+            ),
+            payload: jsonEncode(data),
+          );
+        } catch (_) {}
+      });
     } catch (e) {
       print('❌ خطأ في عرض الإشعار: $e');
     }
@@ -822,7 +851,7 @@ class _DriverHomeState extends State<DriverHome> {
                         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                       ),
                       onPressed: () {
-                        _rejectRide();
+                        _rejectRide(data);
                       },
                       child: const Text(
                         'تجاهل',
@@ -845,20 +874,34 @@ class _DriverHomeState extends State<DriverHome> {
     print(' قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
+    final rideId = _extractRideId(data);
+    if (rideId != null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('dismissed_$rideId', true);
+      } catch (_) {}
+    }
+
     try { 
       await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
     } catch (_) {}
     
-    final rideId = _extractRideId(data);
     if (rideId != null && web != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
     }
   }
 
-  void _rejectRide() {
+  void _rejectRide(Map<String, dynamic> data) async {
     print('❌ رفض الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
+    final rideId = _extractRideId(data);
+    if (rideId != null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('dismissed_$rideId', true);
+      } catch (_) {}
+    }
   }
 
   Future<void> _sendToPWA(Map<String, dynamic> data) async {
