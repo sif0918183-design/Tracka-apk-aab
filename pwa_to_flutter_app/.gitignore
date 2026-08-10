@@ -44,6 +44,7 @@ app.*.map.json
 /android/app/release
 
 # ✅ Firebase configuration (sensitive)
+android/app/google-services.json
 android/app/src/main/google-services.json
 
 # ✅ Keystore files (sensitive)

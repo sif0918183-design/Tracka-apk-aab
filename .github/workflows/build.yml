@@ -27,32 +27,58 @@ jobs:
         working-directory: pwa_to_flutter_app
 
       # ============================================
-      # ✅ google-services.json - من الملف في المستودع
+      # ✅ Recreate and validate google-services.json from Secret
       # ============================================
-      - name: Verify google-services.json exists
+      - name: Recreate and validate google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
-          echo "🔍 Checking for google-services.json..."
-          if [ -f android/app/src/main/google-services.json ]; then
-            SIZE=$(stat -c%s android/app/src/main/google-services.json)
-            echo "✅ google-services.json found ($SIZE bytes)"
-            echo "📄 First 3 lines:"
-            head -n 3 android/app/src/main/google-services.json
-          elif [ -f android/app/google-services.json ]; then
-            SIZE=$(stat -c%s android/app/google-services.json)
-            echo "✅ google-services.json found at fallback path ($SIZE bytes)"
-            # نسخ إلى المسار الصحيح
-            mkdir -p android/app/src/main
-            cp android/app/google-services.json android/app/src/main/google-services.json
-            echo "✅ Copied to src/main/"
-          else
-            echo "❌ google-services.json not found in repository!"
-            echo "📁 Expected path: android/app/src/main/google-services.json"
-            echo "📁 Or: android/app/google-services.json"
-            echo ""
-            echo "📝 Please add google-services.json to the repository"
-            echo "   (removed from .gitignore for testing)"
+          echo "🔍 Recreating google-services.json from secret..."
+          if [ -z "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "❌ GOOGLE_SERVICES_JSON_BASE64 secret is not defined or is empty!"
             exit 1
           fi
+
+          mkdir -p android/app/src/main
+
+          # Decode Base64 to google-services.json without printing the secret
+          if ! echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json 2>/dev/null; then
+            echo "❌ Failed to decode GOOGLE_SERVICES_JSON_BASE64 base64 string!"
+            exit 1
+          fi
+
+          # Ensure the file has content and is not empty after decoding
+          if [ ! -s android/app/google-services.json ]; then
+            echo "❌ Decoded google-services.json file is empty!"
+            rm -f android/app/google-services.json
+            exit 1
+          fi
+
+          # Validate JSON format and structure using python
+          python3 -c "
+          import json, sys
+          try:
+              with open('android/app/google-services.json', 'r') as f:
+                  data = json.load(f)
+              if 'project_info' not in data:
+                  print('❌ Missing critical section: project_info')
+                  sys.exit(1)
+              if 'client' not in data or not isinstance(data['client'], list) or len(data['client']) == 0:
+                  print('❌ Missing or invalid client configuration list')
+                  sys.exit(1)
+              print('✅ google-services.json has valid JSON format and essential fields!')
+          except Exception as e:
+              print('❌ JSON Validation failed:', str(e))
+              sys.exit(1)
+          "
+          if [ $? -ne 0 ]; then
+            rm -f android/app/google-services.json
+            exit 1
+          fi
+
+          # Copy to fallback path src/main
+          cp android/app/google-services.json android/app/src/main/google-services.json
+          echo "✅ google-services.json recreated successfully"
         working-directory: pwa_to_flutter_app
 
       # ============================================
@@ -196,6 +222,18 @@ jobs:
             echo "❌ AAB upload failed"
             exit 1
           fi
+        working-directory: pwa_to_flutter_app
+
+      # ============================================
+      # 🧹 Cleanup google-services.json
+      # ============================================
+      - name: Cleanup google-services.json
+        if: always()
+        run: |
+          echo "🧹 Cleaning up google-services.json files..."
+          rm -f android/app/google-services.json
+          rm -f android/app/src/main/google-services.json
+          echo "✅ Done"
         working-directory: pwa_to_flutter_app
 
       # ============================================
