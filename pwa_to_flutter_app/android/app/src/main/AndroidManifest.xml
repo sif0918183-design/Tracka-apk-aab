@@ -15,7 +15,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <queries>
         <intent>
@@ -121,7 +120,7 @@
         <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_v11" />
+            android:value="emergency_channel_v15" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
@@ -130,7 +129,7 @@
         <!-- ✅ إعدادات الإشعارات المحلية -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
-            android:value="emergency_channel_v11" />
+            android:value="emergency_channel_v15" />
 
         <meta-data
             android:name="flutter_local_notifications.default_channel_name"

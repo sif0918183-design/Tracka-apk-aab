@@ -28,7 +28,7 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v11';
+const String _emergencyChannelId = 'emergency_channel_v15';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -170,23 +170,29 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    await notifications.show(
-      DateTime.now().millisecond, title, body,
-      const fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          'travel_notifications',
-          'إشعارات السفر - تراكا',
-          importance: fln.Importance.high,
-          priority: fln.Priority.high,
-          playSound: true,
-          enableVibration: true,
-          channelShowBadge: true,
-          visibility: fln.NotificationVisibility.public,
+    if (message.notification == null) {
+      await notifications.show(
+        DateTime.now().millisecond, title, body,
+        const fln.NotificationDetails(
+          android: fln.AndroidNotificationDetails(
+            'travel_notifications',
+            'إشعارات السفر - تراكا',
+            importance: fln.Importance.high,
+            priority: fln.Priority.high,
+            playSound: true,
+            enableVibration: true,
+            channelShowBadge: true,
+            visibility: fln.NotificationVisibility.public,
+          ),
         ),
-      ),
-      payload: jsonEncode(data),
-    );
+        payload: jsonEncode(data),
+      );
+    }
   } else if (isRideRequest) {
+    try {
+      await notifications.cancelAll();
+    } catch (_) {}
+
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
@@ -199,8 +205,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: true,
-          fullScreenIntent: true,
-          category: fln.AndroidNotificationCategory.call,
+          autoCancel: false,
           playSound: true,
           enableVibration: true,
           additionalFlags: Int32List.fromList([4]),
@@ -208,7 +213,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
-          timeoutAfter: null,
+          timeoutAfter: 30000,
         ),
       ),
       payload: jsonEncode(data),
@@ -712,8 +717,7 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: true,
-            fullScreenIntent: true,
-            category: fln.AndroidNotificationCategory.call,
+            autoCancel: false,
             playSound: true,
             enableVibration: true,
             additionalFlags: Int32List.fromList([4]),
@@ -721,7 +725,7 @@ class _DriverHomeState extends State<DriverHome> {
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
-            timeoutAfter: null,
+            timeoutAfter: 30000,
           ),
         ),
         payload: jsonEncode(data),
