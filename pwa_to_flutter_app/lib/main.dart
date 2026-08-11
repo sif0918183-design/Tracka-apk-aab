@@ -28,7 +28,7 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v15';
+const String _emergencyChannelId = 'emergency_channel_v36';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -383,7 +383,7 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (androidImplementation != null) {
       // ✅ حذف القنوات القديمة
-      for (int i = 10; i <= 20; i++) {
+      for (int i = 10; i <= 35; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
           await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
@@ -525,7 +525,12 @@ class _DriverHomeState extends State<DriverHome> {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       setState(() => _pendingUrl = travelUrl);
       if (web != null) {
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
+        // تأخير بسيط للتأكد من نشاط الـ WebView وجاهزيتها عند الانتقال للواجهة
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (web != null) {
+            web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
+          }
+        });
       }
       return;
     }
@@ -543,7 +548,12 @@ class _DriverHomeState extends State<DriverHome> {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       setState(() => _pendingUrl = url);
       if (web != null) {
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        // تأخير بسيط للتأكد من نشاط الـ WebView وجاهزيتها عند الانتقال للواجهة
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (web != null) {
+            web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+          }
+        });
       }
     }
   }

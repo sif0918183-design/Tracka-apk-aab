@@ -120,7 +120,7 @@
         <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v36" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
@@ -129,7 +129,7 @@
         <!-- ✅ إعدادات الإشعارات المحلية -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v36" />
 
         <meta-data
             android:name="flutter_local_notifications.default_channel_name"
