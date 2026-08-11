@@ -156,12 +156,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final bool isTravelNotif = _travelTypes.contains(notifType);
   final bool isRideRequest = (notifType == _rideRequestType);
 
-  if (isRideRequest) {
-    String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
-  }
-
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
   const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await notifications.initialize(const fln.InitializationSettings(android: android));
@@ -189,11 +183,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       );
     }
   } else if (isRideRequest) {
+    String? rideId = _extractRideId(data);
+    if (await _isDuplicateRide(rideId)) return;
+
     try {
       await notifications.cancelAll();
     } catch (_) {}
 
-    String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
       title,
@@ -218,6 +214,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
+
+    // ✅ تشغيل الصوت والاهتزاز الاحتياطي فوراً بعد التأكد من عرض الإشعار البصري لمنع أي تعليق أو تأخير
+    try {
+      _playAlertSoundInBackground();
+    } catch (e) {
+      print('⚠️ [FCM Background] Error playing backup sound: $e');
+    }
   }
 }
 
@@ -365,6 +368,15 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _initNotifications() async {
+    // ✅ طلب إذن الإشعارات صراحة وبشكل منفصل لضمان ظهوره وعدم تجاهله في أندرويد 13+ و 16
+    try {
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+    } catch (e) {
+      print('❌ Error requesting notification permission: $e');
+    }
+
     const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
@@ -420,6 +432,23 @@ class _DriverHomeState extends State<DriverHome> {
       await androidImplementation.createNotificationChannel(travelChan);
       
       print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
+    }
+
+    // ✅ معالجة نقرة الإشعار المحلي عند فتح التطبيق من حالة الإغلاق التام
+    try {
+      final launchDetails = await notifications.getNotificationAppLaunchDetails();
+      if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
+        final payload = launchDetails.notificationResponse?.payload;
+        if (payload != null) {
+          print('📱 [Flutter] App launched via local notification payload: $payload');
+          // تأخير بسيط للتأكد من جاهزية وبدء تحميل الـ WebView وتفادي التعليق
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            _handleNotificationClick(jsonDecode(payload));
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Error fetching local notification launch details: $e');
     }
   }
 
@@ -503,10 +532,9 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
+      setState(() => _pendingUrl = travelUrl);
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
-      } else {
-        setState(() => _pendingUrl = travelUrl);
       }
       return;
     }
@@ -522,10 +550,9 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (rideId != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      setState(() => _pendingUrl = url);
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
-      } else {
-        setState(() => _pendingUrl = url);
       }
     }
   }
