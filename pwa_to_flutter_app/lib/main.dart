@@ -67,7 +67,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
 
 // ✅ دالة إيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
-  print(' [GLOBAL] إيقاف الصوت والاهتزاز...');
+  print('🛑 [GLOBAL] إيقاف الصوت والاهتزاز...');
   
   _globalIsAlertPlaying = false;
   
@@ -90,7 +90,7 @@ void stopGlobalAlertSound() {
   
   try {
     Vibration.cancel();
-    print(' [GLOBAL] تم إلغاء الاهتزاز');
+    print('📳 [GLOBAL] تم إلغاء الاهتزاز');
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إلغاء الاهتزاز: $e');
   }
@@ -166,7 +166,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await notifications.initialize(const fln.InitializationSettings(android: android));
 
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : ' طلب رحلة جديد');
+  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
@@ -208,6 +208,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           autoCancel: false,
           playSound: true,
           enableVibration: true,
+          category: fln.AndroidNotificationCategory.call,
           additionalFlags: Int32List.fromList([4]),
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
@@ -242,7 +243,7 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
+  // ✅ طلب الأذونات الأساسية
   try {
     print('🔍 [Flutter] Requesting foreground permissions on startup...');
     await [
@@ -252,7 +253,6 @@ Future<void> main() async {
       Permission.ignoreBatteryOptimizations,
     ].request();
 
-    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
     if (await Permission.location.isGranted) {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
@@ -262,7 +262,6 @@ Future<void> main() async {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
   }
 
-  // ✅ التحقق من التوكن وجلبه فوراً بعد الحصول على الأذونات
   try {
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null && token.isNotEmpty) {
@@ -341,7 +340,6 @@ class _DriverHomeState extends State<DriverHome> {
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   
-  // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
 
   @override
@@ -351,6 +349,35 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    
+    // ✅ التحقق التلقائي من إذن النافذة العائمة وعرض تنبيه لتفعيله إن لم يكن متاحاً
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndRequestOverlayPermission();
+    });
+  }
+
+  Future<void> _checkAndRequestOverlayPermission() async {
+    if (!await FlutterForegroundTask.canDrawOverOtherApps) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('إذن مطلوب للرحلات الفورية'),
+          content: const Text('لضمان ظهور تنبيهات الطلبات العاجلة فوق التطبيقات الأخرى وعند قفل الشاشة، يرجى السماح بالظهور فوق التطبيقات.'),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await FlutterForegroundTask.openSystemAlertWindowSettings();
+              },
+              child: const Text('فتح الإعدادات'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -379,7 +406,6 @@ class _DriverHomeState extends State<DriverHome> {
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة
       for (int i = 10; i <= 20; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
@@ -395,7 +421,6 @@ class _DriverHomeState extends State<DriverHome> {
         await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
       } catch (_) {}
 
-      // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
         _emergencyChannelId,
         _emergencyChannelName,
@@ -408,7 +433,6 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
       
-      // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
         'إشعارات السفر - تراكا',
@@ -426,7 +450,6 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
-    // ✅ طلب الأذونات مع إعادة محاولة
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -441,7 +464,6 @@ class _DriverHomeState extends State<DriverHome> {
       sound: false,
     );
     
-    // ✅ الحصول على التوكن وحفظه
     try {
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
@@ -453,10 +475,8 @@ class _DriverHomeState extends State<DriverHome> {
       print('❌ [Flutter] Error getting token: $e');
     }
     
-    // ✅ استمع لتحديث التوكن
     messaging.onTokenRefresh.listen((newToken) async {
       print('🔄 [Flutter] FCM Token refreshed: $newToken');
-      
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', newToken);
       
@@ -465,10 +485,7 @@ class _DriverHomeState extends State<DriverHome> {
           await web!.evaluateJavascript(
             source: "if(window.onNativeTokenChanged) window.onNativeTokenChanged('$newToken');"
           );
-          print('✅ [Flutter] Token refresh sent to PWA');
-        } catch (e) {
-          print('⚠️ [Flutter] Could not send token refresh to PWA: $e');
-        }
+        } catch (_) {}
       }
     });
     
@@ -512,7 +529,6 @@ class _DriverHomeState extends State<DriverHome> {
     }
 
     dynamic rideId = data['ride_id'] ?? data['rideId'];
-
     if (rideId == null && data['payload'] != null) {
       try {
         final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
@@ -624,7 +640,6 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت لمدة 30 ثانية فقط
   void _playAlertSound() {
     stopGlobalAlertSound();
     _globalIsAlertPlaying = true;
@@ -658,7 +673,6 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (_) {}
     }
 
-    // ✅ إيقاف تلقائي بعد 30 ثانية
     Future.delayed(const Duration(seconds: _alertDurationSeconds), () {
       print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
       stopGlobalAlertSound();
@@ -687,7 +701,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _stopAlerts() {
-    print(' إيقاف جميع التنبيهات...');
+    print('🛑 إيقاف جميع التنبيهات...');
     stopGlobalAlertSound();
     
     if (_overlayEntry != null) {
@@ -708,7 +722,7 @@ class _DriverHomeState extends State<DriverHome> {
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
-        ' طلب رحلة جديد',
+        '🚨 طلب رحلة جديد',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
@@ -720,6 +734,7 @@ class _DriverHomeState extends State<DriverHome> {
             autoCancel: false,
             playSound: true,
             enableVibration: true,
+            category: fln.AndroidNotificationCategory.call,
             additionalFlags: Int32List.fromList([4]),
             vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
@@ -784,7 +799,7 @@ class _DriverHomeState extends State<DriverHome> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  ' طلب رحلة جديد',
+                  '🚨 طلب رحلة جديد',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
@@ -846,7 +861,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    print(' قبول الرحلة - إيقاف التنبيهات...');
+    print('✅ قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
     try { 
@@ -922,91 +937,55 @@ class _DriverHomeState extends State<DriverHome> {
             onWebViewCreated: (controller) {
               web = controller;
               
-              print('📱 [Flutter] ========================================');
-              print('📱 [Flutter] 🚀 WebView Created - Registering Handlers');
-              print('📱 [Flutter] ========================================');
-              
-              // ✅ Handler 1: Ping (للاختبار)
               controller.addJavaScriptHandler(
                 handlerName: 'ping',
-                callback: (args) {
-                  print('📱 [Flutter] ✅ Ping received from PWA');
-                  return 'pong';
-                },
+                callback: (args) => 'pong',
               );
               
-              // ✅ Handler 2: Get FCM Token مع إعادة محاولة
               controller.addJavaScriptHandler(
                 handlerName: 'getFCMToken',
                 callback: (args) async {
-                  print('📱 [Flutter] 📞 getFCMToken called from PWA');
-                  
                   try {
-                    // 1. طلب الأذونات
                     NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
-                      alert: true,
-                      badge: true,
-                      sound: true,
+                      alert: true, badge: true, sound: true,
                     );
+                    if (settings.authorizationStatus != AuthorizationStatus.authorized) return null;
                     
-                    print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
-                    
-                    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-                      print('📱 [Flutter] ⚠️ Not authorized');
-                      return null;
-                    }
-                    
-                    // 2. محاولة الحصول على التوكن مع إعادة محاولة
                     String? token;
                     for (int i = 0; i < 3; i++) {
                       try {
                         token = await FirebaseMessaging.instance.getToken();
                         if (token != null && token.isNotEmpty) break;
-                      } catch (e) {
-                        print('📱 [Flutter] ❌ Attempt ${i+1} failed: $e');
-                      }
-                      await Future.delayed(Duration(seconds: 1));
+                      } catch (_) {}
+                      await Future.delayed(const Duration(seconds: 1));
                     }
-                    
                     if (token != null && token.isNotEmpty) {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('fcm_token', token);
-                      print('📱 [Flutter] ✅ Token: ${token.substring(0, 20)}...');
                       return token;
                     }
-                    
-                    print('📱 [Flutter] ❌ No token available');
                     return null;
-                    
-                  } catch (e) {
-                    print('📱 [Flutter] ❌ Error: $e');
+                  } catch (_) {
                     return null;
                   }
                 },
               );
               
-              // ✅ Handler 3: Get stored token from SharedPreferences (احتياطي)
               controller.addJavaScriptHandler(
                 handlerName: 'getStoredFCMToken',
                 callback: (args) async {
-                  print('📱 [Flutter] 📞 getStoredFCMToken called');
                   try {
                     final prefs = await SharedPreferences.getInstance();
-                    final token = prefs.getString('fcm_token');
-                    print('📱 [Flutter] 🔑 Stored token: ${token?.substring(0, 20)}...');
-                    return token;
-                  } catch (e) {
-                    print('📱 [Flutter] ❌ Error: $e');
+                    return prefs.getString('fcm_token');
+                  } catch (_) {
                     return null;
                   }
                 },
               );
               
-              // ✅ Handler 4: Check FCM status (للتشخيص)
               controller.addJavaScriptHandler(
                 handlerName: 'checkFCMStatus',
                 callback: (args) async {
-                  print('📱 [Flutter] 🔍 checkFCMStatus called');
                   try {
                     final token = await FirebaseMessaging.instance.getToken();
                     final settings = await FirebaseMessaging.instance.requestPermission();
@@ -1022,69 +1001,45 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 5: Token sync complete
               controller.addJavaScriptHandler(
                 handlerName: 'tokenSyncComplete',
-                callback: (args) {
-                  print('📱 [Flutter] ✅ PWA confirmed token sync: $args');
-                  return 'OK';
-                },
+                callback: (args) => 'OK',
               );
               
-              // ✅ Handler 6: Stop alerts from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
-                  print('📱 [Flutter] 🛑 Stop alerts received from PWA');
                   _stopAlerts(); 
                   return 'OK';
                 }
               );
               
-              // ✅ Handler 7: Stop alerts (alternative name)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
-                  print('📱 [Flutter] 🛑 Stop alerts (alt) received from PWA');
                   _stopAlerts();
                   return 'OK';
                 }
               );
               
-              // ✅ Handler 8: Driver login from PWA
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
-                  print('📱 [Flutter] 🔐 Driver login received from PWA');
-                  print('📱 [Flutter] 📋 Data: $args');
-                  
                   if (args.isNotEmpty && args[0] is Map) {
                     final data = args[0] as Map;
                     final id = data['id']?.toString() ?? data['driver_id']?.toString();
                     if (id != null && id.isNotEmpty) {
-                      print('📱 [Flutter] ✅ Driver ID: $id');
                       _saveDriver(id);
-                    } else {
-                      print('📱 [Flutter] ⚠️ No driver ID found in data');
                     }
                   }
                   return 'OK';
                 }
               );
               
-              // ✅ Handler 9: Get driver ID
               controller.addJavaScriptHandler(
                 handlerName: 'getDriverId',
-                callback: (args) {
-                  print('📱 [Flutter] 📞 getDriverId called from PWA');
-                  print('📱 [Flutter] 📋 Current driverId: $driverId');
-                  return driverId ?? '';
-                },
+                callback: (args) => driverId ?? '',
               );
-              
-              print('📱 [Flutter] ========================================');
-              print('📱 [Flutter] ✅ All Handlers Registered Successfully');
-              print('📱 [Flutter] ========================================');
 
               if (_pendingUrl != null) {
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
@@ -1094,15 +1049,12 @@ class _DriverHomeState extends State<DriverHome> {
                 GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
             onLoadStop: (controller, url) async {
               _isPageLoaded = true;
-              print('📱 [Flutter] 🌐 Page loaded: $url');
-              
               if (url != null) {
                 final String currentUrl = url.toString();
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('last_url', currentUrl);
 
                 if (currentUrl.contains('accept-ride.html')) {
-                  print('📱 [Flutter] 📍 accept-ride.html loaded - stopping alerts');
                   _stopAlerts();
                 }
               }
@@ -1128,7 +1080,6 @@ class _DriverHomeState extends State<DriverHome> {
       try {
         final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
         if (res != null && res != 'null' && res != driverId) {
-          print('📱 [Flutter] 🔄 Driver ID changed to: $res');
           _saveDriver(res);
         }
       } catch (_) {}
