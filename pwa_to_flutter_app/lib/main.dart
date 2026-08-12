@@ -337,6 +337,7 @@ class _DriverHomeState extends State<DriverHome> {
   bool _isPageLoaded = false;
   String? driverId;
   String? _pendingUrl;
+  String? _pendingNotificationUrl; // ✅ pending notification URL
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
@@ -369,12 +370,28 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
+        print('📱 [Flutter] Local Notification Clicked: ${details.payload}');
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
         if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
       }
     );
+
+    // ✅ Handle App Launch from Local Notification click (Cold Start)
+    try {
+      final fln.NotificationAppLaunchDetails? launchDetails =
+          await notifications.getNotificationAppLaunchDetails();
+      if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
+        final fln.NotificationResponse? response = launchDetails.notificationResponse;
+        if (response != null && response.payload != null) {
+          print('📱 [Flutter] App launched via local notification click payload: ${response.payload}');
+          _handleNotificationClick(jsonDecode(response.payload!));
+        }
+      }
+    } catch (e) {
+      print('❌ [Flutter] Error getting notification app launch details: $e');
+    }
 
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
@@ -497,17 +514,27 @@ class _DriverHomeState extends State<DriverHome> {
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
+    print('📱 [Flutter] === NOTIFICATION CLICK DIAGNOSTIC ===');
+    print('📱 [Flutter] Notification clicked, type: $notifType');
+    print('📱 [Flutter] Notification payload/data: $data');
+    print('📱 [Flutter] Current driver ID: $driverId');
+    print('📱 [Flutter] WebView readiness: ${web != null ? "READY" : "NOT READY"}');
+
     stopGlobalAlertSound();
     _overlayEntry?.remove();
     _overlayEntry = null;
 
     if (isTravelNotif) {
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
+      _pendingNotificationUrl = travelUrl;
+      print('📱 [Flutter] Target Travel URL: $travelUrl');
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
+        _pendingNotificationUrl = null;
       } else {
         setState(() => _pendingUrl = travelUrl);
       }
+      print('📱 [Flutter] ==========================================');
       return;
     }
 
@@ -522,12 +549,19 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (rideId != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      _pendingNotificationUrl = url;
+      print('📱 [Flutter] Ride ID extracted: $rideId');
+      print('📱 [Flutter] Target Ride URL: $url');
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        _pendingNotificationUrl = null;
       } else {
         setState(() => _pendingUrl = url);
       }
+    } else {
+      print('📱 [Flutter] No ride ID found in notification data!');
     }
+    print('📱 [Flutter] ==========================================');
   }
 
   void _handleFcmMessage(RemoteMessage message) async {
@@ -562,7 +596,7 @@ class _DriverHomeState extends State<DriverHome> {
     final prefs = await SharedPreferences.getInstance();
     driverId = prefs.getString('driver_id');
     final lastUrl = prefs.getString('last_url');
-    if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
+    if (_pendingNotificationUrl == null && _pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
       if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
       else setState(() => _pendingUrl = lastUrl);
     }
@@ -1086,7 +1120,12 @@ class _DriverHomeState extends State<DriverHome> {
               print('📱 [Flutter] ✅ All Handlers Registered Successfully');
               print('📱 [Flutter] ========================================');
 
-              if (_pendingUrl != null) {
+              if (_pendingNotificationUrl != null) {
+                print('📱 [Flutter] 🚀 Loading pending notification URL in onWebViewCreated: $_pendingNotificationUrl');
+                controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingNotificationUrl!)));
+                _pendingNotificationUrl = null;
+              } else if (_pendingUrl != null) {
+                print('📱 [Flutter] 🚀 Loading pending URL in onWebViewCreated: $_pendingUrl');
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
               }
             },
@@ -1105,6 +1144,13 @@ class _DriverHomeState extends State<DriverHome> {
                   print('📱 [Flutter] 📍 accept-ride.html loaded - stopping alerts');
                   _stopAlerts();
                 }
+              }
+
+              if (_pendingNotificationUrl != null) {
+                final String target = _pendingNotificationUrl!;
+                _pendingNotificationUrl = null;
+                print('📱 [Flutter] 🚀 Loading pending notification URL in onLoadStop: $target');
+                controller.loadUrl(urlRequest: URLRequest(url: WebUri(target)));
               }
               _startDriverSync();
             },
