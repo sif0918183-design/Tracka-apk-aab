@@ -14,20 +14,12 @@ import io.flutter.plugin.common.MethodChannel;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
+    public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         createNotificationChannels();
-        
-        // ✅ معالجة الإشعار إذا تم فتح التطبيق من خلاله
-        Intent intent = getIntent();
-        if (intent != null && intent.hasExtra("payload")) {
-            String payload = intent.getStringExtra("payload");
-            if (payload != null && !payload.isEmpty()) {
-                // سيتم إرسال payload إلى Flutter عند تهيئة القناة
-            }
-        }
     }
 
     @Override
@@ -55,21 +47,20 @@ public class MainActivity extends FlutterActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-            // ✅ قناة الطوارئ (لرحلات RIDE_REQUEST)
+            // ✅ قناة الطوارئ
             NotificationChannel emergencyChannel = new NotificationChannel(
-                "emergency_channel_v15",
+                EMERGENCY_CHANNEL_ID,
                 "تنبيهات الطوارئ - تراكا",
                 NotificationManager.IMPORTANCE_MAX
             );
-            emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي");
-            emergencyChannel.setSound(android.net.Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound"), null);
+            emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة");
             emergencyChannel.enableVibration(true);
-            emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500});
+            emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500});
             emergencyChannel.setShowBadge(true);
             emergencyChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(emergencyChannel);
 
-            // ✅ قناة السفر (للإشعارات العادية)
+            // ✅ قناة السفر
             NotificationChannel travelChannel = new NotificationChannel(
                 "travel_notifications",
                 "إشعارات السفر - تراكا",
@@ -81,7 +72,7 @@ public class MainActivity extends FlutterActivity {
             travelChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(travelChannel);
 
-            // ✅ قناة خدمة الخلفية
+            // ✅ قناة الخدمة
             NotificationChannel serviceChannel = new NotificationChannel(
                 "foreground_service",
                 "خدمة تراكا تعمل حالياً",
@@ -94,23 +85,22 @@ public class MainActivity extends FlutterActivity {
         }
     }
 
-    private void showEmergencyNotification(String title, String body, String payload) {
+    public static void showEmergencyNotificationStatic(Context context, String title, String body, String payload) {
         try {
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
-            // ✅ Intent لفتح التطبيق عند الضغط على الإشعار
-            Intent intent = new Intent(this, MainActivity.class);
+            Intent intent = new Intent(context, MainActivity.class);
             intent.putExtra("payload", payload);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
-                this,
+                context,
                 0,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
 
-            NotificationCompat.Builder notification = new NotificationCompat.Builder(this, "emergency_channel_v15")
+            NotificationCompat.Builder notification = new NotificationCompat.Builder(context, EMERGENCY_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -119,7 +109,6 @@ public class MainActivity extends FlutterActivity {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(false)
                 .setOngoing(true)
-                .setSound(android.net.Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound"))
                 .setVibrate(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500})
                 .setContentIntent(pendingIntent)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
@@ -132,6 +121,10 @@ public class MainActivity extends FlutterActivity {
         } catch (Exception e) {
             System.err.println("❌ Error showing native notification: " + e.getMessage());
         }
+    }
+
+    private void showEmergencyNotification(String title, String body, String payload) {
+        showEmergencyNotificationStatic(this, title, body, payload);
     }
 
     private void cancelAllNotifications() {
