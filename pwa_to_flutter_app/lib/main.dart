@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:typed_data';
   
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' as fln;
 import 'package:permission_handler/permission_handler.dart';
@@ -17,6 +17,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
+
+// ✅ MethodChannel للتواصل مع Native Android
+const MethodChannel _nativeChannel = MethodChannel('com.tracka.app/notifications');
 
 // ✅ Global Navigator Key for Overlay
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -155,7 +158,7 @@ void _vibratePhoneBackground() {
 // ✅ دالة إنشاء قنوات الإشعارات (للاستخدام في الخلفية والأمامية)
 Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlugin? androidImpl) async {
   if (androidImpl == null) return;
-
+  
   try {
     // حذف القنوات القديمة
     for (int i = 10; i <= 20; i++) {
@@ -164,7 +167,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
         await androidImpl.deleteNotificationChannel('emergency_channel_backup_v$i');
       } catch (_) {}
     }
-
+    
     // ✅ قناة الطوارئ
     final emergencyChan = fln.AndroidNotificationChannel(
       _emergencyChannelId,
@@ -177,7 +180,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
     );
     await androidImpl.createNotificationChannel(emergencyChan);
-
+    
     // ✅ قناة السفر
     const travelChan = fln.AndroidNotificationChannel(
       _travelChannelId,
@@ -188,7 +191,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       enableVibration: true,
     );
     await androidImpl.createNotificationChannel(travelChan);
-
+    
     // ✅ قناة خدمة الخلفية
     const serviceChan = fln.AndroidNotificationChannel(
       'foreground_service',
@@ -199,10 +202,26 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       enableVibration: false,
     );
     await androidImpl.createNotificationChannel(serviceChan);
-
+    
     print('✅ [Flutter] All notification channels created successfully');
   } catch (e) {
     print('❌ [Flutter] Error creating channels: $e');
+  }
+}
+
+// ✅ دالة إلغاء جميع الإشعارات عبر Native
+void _cancelAllNotifications() {
+  try {
+    _nativeChannel.invokeMethod('cancelAllNotifications');
+    print('✅ [Flutter] Native notifications cancelled');
+  } catch (e) {
+    print('⚠️ [Flutter] Error cancelling native notifications: $e');
+  }
+  try {
+    _globalNotifications.cancelAll();
+    print('✅ [Flutter] Local notifications cancelled');
+  } catch (e) {
+    print('⚠️ [Flutter] Error cancelling local notifications: $e');
   }
 }
 
@@ -210,11 +229,11 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // ✅ إعادة تهيئة Firebase في الخلفية
   await Firebase.initializeApp();
-
+  
   // ✅ إعادة تهيئة الإشعارات في الخلفية
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
-
+  
   // ✅ إنشاء القنوات في الخلفية
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
@@ -291,7 +310,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
-    print('📱 [Background] Ride notification shown successfully');
+    print('📱 [Background] Ride notification shown');
   }
 }
 
@@ -321,7 +340,7 @@ Future<void> main() async {
   await _globalNotifications.initialize(
     const fln.InitializationSettings(android: androidInit),
   );
-
+  
   // ✅ إنشاء القنوات مبكراً
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
@@ -331,24 +350,24 @@ Future<void> main() async {
   // ✅ طلب الأذونات
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
-
+    
     // 1. طلب أذونات الإشعارات أولاً (الأهم)
     if (defaultTargetPlatform == TargetPlatform.android) {
       final notificationStatus = await Permission.notification.request();
       print('📱 [Flutter] Notification permission status: $notificationStatus');
-
+      
       if (notificationStatus.isPermanentlyDenied) {
         print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
         await openAppSettings();
       }
-
+      
       // تأكد من منح الإذن
       if (!notificationStatus.isGranted) {
         final retryStatus = await Permission.notification.request();
         print('📱 [Flutter] Notification permission after retry: $retryStatus');
       }
     }
-
+    
     // 2. طلب أذونات الموقع
     await [
       Permission.location,
@@ -361,7 +380,7 @@ Future<void> main() async {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
     }
-
+    
     print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
@@ -452,6 +471,20 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
+    
+    // ✅ استماع لفتح الإشعار من Native
+    _nativeChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onNotificationOpened') {
+        final payload = call.arguments as String;
+        try {
+          final data = jsonDecode(payload);
+          _handleNotificationClick(data);
+        } catch (e) {
+          print('❌ Error parsing notification payload: $e');
+        }
+      }
+    });
+    
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
@@ -479,7 +512,7 @@ class _DriverHomeState extends State<DriverHome> {
     );
     
     print('📱 [Flutter] FCM Permission status: ${settings.authorizationStatus}');
-
+    
     // ✅ إذا كان الإذن مرفوضاً، افتح الإعدادات
     if (settings.authorizationStatus == AuthorizationStatus.denied) {
       print('⚠️ [Flutter] Notification permission denied, opening settings...');
@@ -607,16 +640,16 @@ class _DriverHomeState extends State<DriverHome> {
       }
 
       print('📱 [Foreground] 🚨 RIDE_REQUEST received!');
-
+      
       stopGlobalAlertSound();
       _playAlertSound();
       
-      // ✅ عرض الإشعار أولاً
+      // ✅ عرض الإشعار عبر Native أولاً
       await _showLocalNotification(data);
-
+      
       // ✅ ثم عرض المودال
       _showRideRequestModal(data);
-
+      
       // ✅ إرسال إلى PWA
       await _sendToPWA(data);
       
@@ -685,7 +718,7 @@ class _DriverHomeState extends State<DriverHome> {
           if (await _isDuplicateRide(rideId)) return;
 
           print('📱 [Supabase] 🚨 New ride request inserted!');
-
+          
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
@@ -765,11 +798,10 @@ class _DriverHomeState extends State<DriverHome> {
       _overlayEntry = null;
     }
     
-    try {
-      notifications.cancelAll();
-    } catch (_) {}
+    _cancelAllNotifications();
   }
 
+  // ✅ عرض الإشعار عبر Native Android
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
     try {
       // ✅ تحقق من إذن الإشعارات قبل العرض
@@ -785,12 +817,40 @@ class _DriverHomeState extends State<DriverHome> {
         }
       }
 
+      final String title = '🚨 طلب رحلة جديد';
+      final String body = '${data['customer_name'] ?? 'عميل'} - ${data['amount'] ?? 0} SDG';
+      final String payload = jsonEncode(data);
+      
+      print('📱 [Flutter] Showing notification via Native: $title');
+      
+      // ✅ استخدام Native method
+      await _nativeChannel.invokeMethod('showEmergencyNotification', {
+        'title': title,
+        'body': body,
+        'payload': payload,
+      });
+      
+      print('✅ [Flutter] Notification shown via Native');
+    } catch (e) {
+      print('❌ Error showing notification via Native: $e');
+      // ✅ Fallback إلى flutter_local_notifications
+      try {
+        await _showLocalNotificationFallback(data);
+      } catch (fallbackError) {
+        print('❌ Fallback notification also failed: $fallbackError');
+      }
+    }
+  }
+
+  // ✅ Fallback method باستخدام flutter_local_notifications
+  Future<void> _showLocalNotificationFallback(Map<String, dynamic> data) async {
+    try {
       String name = data['customer_name'] ?? 'عميل';
       String amount = data['amount']?.toString() ?? '0';
       String? rideId = _extractRideId(data);
 
-      print('📱 [Flutter] Showing notification for ride: $rideId');
-
+      print('📱 [Flutter] Showing fallback notification for ride: $rideId');
+      
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
         '🚨 طلب رحلة جديد',
@@ -816,10 +876,11 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
-
-      print('✅ [Flutter] Notification shown successfully');
+      
+      print('✅ [Flutter] Fallback notification shown successfully');
     } catch (e) {
-      print('❌ خطأ في عرض الإشعار: $e');
+      print('❌ Fallback notification error: $e');
+      rethrow;
     }
   }
 
@@ -843,6 +904,7 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
+      print('✅ [Flutter] Travel notification shown');
     } catch (e) {
       print('❌ Error showing travel notification: $e');
     }
