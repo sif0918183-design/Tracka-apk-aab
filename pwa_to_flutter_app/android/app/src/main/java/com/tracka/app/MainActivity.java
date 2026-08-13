@@ -14,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
+    public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -24,7 +25,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
-        
+
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
                 if (call.method.equals("showEmergencyNotification")) {
@@ -48,13 +49,13 @@ public class MainActivity extends FlutterActivity {
 
             // ✅ قناة الطوارئ
             NotificationChannel emergencyChannel = new NotificationChannel(
-                "emergency_channel_v15",
+                EMERGENCY_CHANNEL_ID,
                 "تنبيهات الطوارئ - تراكا",
                 NotificationManager.IMPORTANCE_MAX
             );
-            emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي");
+            emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة");
             emergencyChannel.enableVibration(true);
-            emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500});
+            emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500});
             emergencyChannel.setShowBadge(true);
             emergencyChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(emergencyChannel);
@@ -84,22 +85,22 @@ public class MainActivity extends FlutterActivity {
         }
     }
 
-    private void showEmergencyNotification(String title, String body, String payload) {
+    public static void showEmergencyNotificationStatic(Context context, String title, String body, String payload) {
         try {
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
-            Intent intent = new Intent(this, MainActivity.class);
+            Intent intent = new Intent(context, MainActivity.class);
             intent.putExtra("payload", payload);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
-                this,
+                context,
                 0,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
 
-            NotificationCompat.Builder notification = new NotificationCompat.Builder(this, "emergency_channel_v15")
+            NotificationCompat.Builder notification = new NotificationCompat.Builder(context, EMERGENCY_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -112,24 +113,18 @@ public class MainActivity extends FlutterActivity {
                 .setContentIntent(pendingIntent)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
-            // ✅ إضافة الصوت إذا كان موجوداً
-            try {
-                int soundResId = getResources().getIdentifier("ride_request_sound", "raw", getPackageName());
-                if (soundResId > 0) {
-                    notification.setSound(android.net.Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound"));
-                }
-            } catch (Exception e) {
-                System.err.println("⚠️ Sound resource not found, using default");
-            }
-
             int notificationId = (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notification.build());
-            
+
             System.out.println("✅ Native notification shown: " + title);
-            
+
         } catch (Exception e) {
             System.err.println("❌ Error showing native notification: " + e.getMessage());
         }
+    }
+
+    private void showEmergencyNotification(String title, String body, String payload) {
+        showEmergencyNotificationStatic(this, title, body, payload);
     }
 
     private void cancelAllNotifications() {

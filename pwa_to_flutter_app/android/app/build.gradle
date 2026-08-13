@@ -15,14 +15,11 @@ if (localPropertiesFile.exists()) {
 
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = project.file('../key.properties')
-println "DEBUG: keystorePropertiesFile absolutePath: " + keystorePropertiesFile.absolutePath
-println "DEBUG: keystorePropertiesFile exists: " + keystorePropertiesFile.exists()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withReader('UTF-8') { reader ->
         keystoreProperties.load(reader)
     }
 }
-println "DEBUG: keystoreProperties keys: " + keystoreProperties.keySet()
 
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
 if (flutterVersionCode == null) {
@@ -82,6 +79,8 @@ android {
 
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+    implementation platform('com.google.firebase:firebase-bom:33.1.2')
+    implementation 'com.google.firebase:firebase-messaging'
     implementation 'com.google.android.material:material:1.6.0'
     implementation 'androidx.multidex:multidex:2.0.1'
 }
