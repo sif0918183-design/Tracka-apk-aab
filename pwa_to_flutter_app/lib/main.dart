@@ -30,6 +30,8 @@ const String _rideRequestType = 'RIDE_REQUEST';
 // ✅ معرف القناة الثابت
 const String _emergencyChannelId = 'emergency_channel_v15';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
+const String _travelChannelId = 'travel_notifications';
+const String _travelChannelName = 'إشعارات السفر - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
 AudioPlayer? _globalAudioPlayer;
@@ -38,6 +40,9 @@ bool _globalIsAlertPlaying = false;
 
 // ✅ مدة الرنين بالثواني
 const int _alertDurationSeconds = 30;
+
+// ✅ مثيل الإشعارات العالمي للخلفية
+final fln.FlutterLocalNotificationsPlugin _globalNotifications = fln.FlutterLocalNotificationsPlugin();
 
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
@@ -67,7 +72,7 @@ Future<bool> _isDuplicateRide(String? rideId) async {
 
 // ✅ دالة إيقاف الصوت والاهتزاز
 void stopGlobalAlertSound() {
-  print(' [GLOBAL] إيقاف الصوت والاهتزاز...');
+  print('🛑 [GLOBAL] إيقاف الصوت والاهتزاز...');
   
   _globalIsAlertPlaying = false;
   
@@ -90,7 +95,7 @@ void stopGlobalAlertSound() {
   
   try {
     Vibration.cancel();
-    print(' [GLOBAL] تم إلغاء الاهتزاز');
+    print('📳 [GLOBAL] تم إلغاء الاهتزاز');
   } catch (e) {
     print('⚠️ [GLOBAL] خطأ في إلغاء الاهتزاز: $e');
   }
@@ -147,96 +152,121 @@ void _vibratePhoneBackground() {
   } catch (_) {}
 }
 
+// ✅ دالة إنشاء قنوات الإشعارات (للاستخدام في الخلفية والأمامية)
+Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlugin? androidImpl) async {
+  if (androidImpl == null) return;
+  
+  try {
+    // حذف القنوات القديمة
+    for (int i = 10; i <= 20; i++) {
+      try {
+        await androidImpl.deleteNotificationChannel('emergency_channel_v$i');
+        await androidImpl.deleteNotificationChannel('emergency_channel_backup_v$i');
+      } catch (_) {}
+    }
+    
+    // ✅ قناة الطوارئ
+    final emergencyChan = fln.AndroidNotificationChannel(
+      _emergencyChannelId,
+      _emergencyChannelName,
+      description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
+      importance: fln.Importance.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+      sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+    );
+    await androidImpl.createNotificationChannel(emergencyChan);
+    
+    // ✅ قناة السفر
+    const travelChan = fln.AndroidNotificationChannel(
+      _travelChannelId,
+      _travelChannelName,
+      description: 'إشعارات قبول الرحلات والمحادثات',
+      importance: fln.Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    await androidImpl.createNotificationChannel(travelChan);
+    
+    // ✅ قناة خدمة الخلفية
+    const serviceChan = fln.AndroidNotificationChannel(
+      'foreground_service',
+      'خدمة تراكا تعمل حالياً',
+      description: 'إشعارات خدمة الخلفية',
+      importance: fln.Importance.low,
+      playSound: false,
+      enableVibration: false,
+    );
+    await androidImpl.createNotificationChannel(serviceChan);
+    
+    print('✅ [Flutter] All notification channels created successfully');
+  } catch (e) {
+    print('❌ [Flutter] Error creating channels: $e');
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // ✅ إعادة تهيئة Firebase في الخلفية
   await Firebase.initializeApp();
+  
+  // ✅ إعادة تهيئة الإشعارات في الخلفية
+  const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
+  await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
+  
+  // ✅ إنشاء القنوات في الخلفية
+  final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+  if (androidImpl != null) {
+    await _createNotificationChannels(androidImpl);
+  }
 
   Map<String, dynamic> data = message.data;
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
   final bool isRideRequest = (notifType == _rideRequestType);
 
+  print('📱 [Background] Received message type: $notifType');
+
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
-  }
-
-  final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
-  
-  // ✅ تهيئة الإشعارات في الخلفية
-  const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-  await notifications.initialize(const fln.InitializationSettings(android: android));
-  
-  // ✅ إنشاء القنوات في الخلفية
-  final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
-  if (androidImplementation != null) {
-    try {
-      // حذف القنوات القديمة
-      for (int i = 10; i <= 20; i++) {
-        try {
-          await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
-          await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
-        } catch (_) {}
-      }
-      
-      // إنشاء قناة الطوارئ
-      final emergencyChan = fln.AndroidNotificationChannel(
-        _emergencyChannelId,
-        _emergencyChannelName,
-        description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
-        importance: fln.Importance.max,
-        playSound: true,
-        enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-        sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-      );
-      await androidImplementation.createNotificationChannel(emergencyChan);
-      
-      // إنشاء قناة السفر
-      const travelChan = fln.AndroidNotificationChannel(
-        'travel_notifications',
-        'إشعارات السفر - تراكا',
-        description: 'إشعارات قبول الرحلات والمحادثات',
-        importance: fln.Importance.high,
-        playSound: true,
-        enableVibration: true,
-      );
-      await androidImplementation.createNotificationChannel(travelChan);
-    } catch (e) {
-      print('⚠️ [Background] Error creating channels: $e');
+    if (await _isDuplicateRide(rideId)) {
+      print('📱 [Background] Duplicate ride ignored');
+      return;
     }
+    _playAlertSoundInBackground();
   }
 
   String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    if (message.notification == null) {
-      await notifications.show(
-        DateTime.now().millisecond, title, body,
-        const fln.NotificationDetails(
-          android: fln.AndroidNotificationDetails(
-            'travel_notifications',
-            'إشعارات السفر - تراكا',
-            importance: fln.Importance.high,
-            priority: fln.Priority.high,
-            playSound: true,
-            enableVibration: true,
-            channelShowBadge: true,
-            visibility: fln.NotificationVisibility.public,
-          ),
+    await _globalNotifications.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          _travelChannelId,
+          _travelChannelName,
+          importance: fln.Importance.high,
+          priority: fln.Priority.high,
+          playSound: true,
+          enableVibration: true,
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
         ),
-        payload: jsonEncode(data),
-      );
-    }
+      ),
+      payload: jsonEncode(data),
+    );
+    print('📱 [Background] Travel notification shown');
   } else if (isRideRequest) {
     try {
-      await notifications.cancelAll();
+      await _globalNotifications.cancelAll();
     } catch (_) {}
 
     String? rideId = _extractRideId(data);
-    await notifications.show(
+    final result = await _globalNotifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
       title,
       body,
@@ -256,10 +286,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
           timeoutAfter: 30000,
+          styleInformation: const fln.BigTextStyleInformation(''),
         ),
       ),
       payload: jsonEncode(data),
     );
+    print('📱 [Background] Ride notification shown, result: $result');
   }
 }
 
@@ -284,17 +316,37 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ طلب الأذونات أولاً بترتيب صحيح
+  // ✅ تهيئة الإشعارات مبكراً
+  const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
+  await _globalNotifications.initialize(
+    const fln.InitializationSettings(android: androidInit),
+  );
+  
+  // ✅ إنشاء القنوات مبكراً
+  final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+  if (androidImpl != null) {
+    await _createNotificationChannels(androidImpl);
+  }
+
+  // ✅ طلب الأذونات
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
     
     // 1. طلب أذونات الإشعارات أولاً (الأهم)
-    final notificationStatus = await Permission.notification.request();
-    print('📱 [Flutter] Notification permission status: $notificationStatus');
-    
-    if (notificationStatus.isPermanentlyDenied) {
-      print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
-      await openAppSettings();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final notificationStatus = await Permission.notification.request();
+      print('📱 [Flutter] Notification permission status: $notificationStatus');
+      
+      if (notificationStatus.isPermanentlyDenied) {
+        print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
+        await openAppSettings();
+      }
+      
+      // تأكد من منح الإذن
+      if (!notificationStatus.isGranted) {
+        final retryStatus = await Permission.notification.request();
+        print('📱 [Flutter] Notification permission after retry: $retryStatus');
+      }
     }
     
     // 2. طلب أذونات الموقع
@@ -352,8 +404,8 @@ void _initForegroundTask() {
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'foreground_service',
       channelName: 'خدمة تراكا تعمل حالياً',
-      channelImportance: NotificationChannelImportance.MAX,
-      priority: NotificationPriority.HIGH,
+      channelImportance: NotificationChannelImportance.LOW,
+      priority: NotificationPriority.LOW,
     ),
     iosNotificationOptions: const IOSNotificationOptions(showNotification: true, playSound: false),
     foregroundTaskOptions: ForegroundTaskOptions(
@@ -400,7 +452,6 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
-    _initNotifications();
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
@@ -417,59 +468,6 @@ class _DriverHomeState extends State<DriverHome> {
     super.dispose();
   }
 
-  Future<void> _initNotifications() async {
-    // ✅ تهيئة الإشعارات
-    const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-    await notifications.initialize(
-      const fln.InitializationSettings(android: androidInit),
-      onDidReceiveNotificationResponse: (details) {
-        stopGlobalAlertSound();
-        _overlayEntry?.remove();
-        _overlayEntry = null;
-        if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
-      }
-    );
-
-    // ✅ إنشاء القنوات
-    final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
-
-    if (androidImplementation != null) {
-      // حذف القنوات القديمة
-      for (int i = 10; i <= 20; i++) {
-        try {
-          await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
-          await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
-        } catch (_) {}
-      }
-
-      // ✅ إنشاء قناة الطوارئ الرئيسية
-      final emergencyChan = fln.AndroidNotificationChannel(
-        _emergencyChannelId,
-        _emergencyChannelName,
-        description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
-        importance: fln.Importance.max,
-        playSound: true,
-        enableVibration: true,
-        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
-        sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-      );
-      await androidImplementation.createNotificationChannel(emergencyChan);
-      
-      // ✅ قناة إشعارات السفر
-      const travelChan = fln.AndroidNotificationChannel(
-        'travel_notifications',
-        'إشعارات السفر - تراكا',
-        description: 'إشعارات قبول الرحلات والمحادثات',
-        importance: fln.Importance.high,
-        playSound: true,
-        enableVibration: true,
-      );
-      await androidImplementation.createNotificationChannel(travelChan);
-      
-      print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
-    }
-  }
-
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
@@ -480,20 +478,14 @@ class _DriverHomeState extends State<DriverHome> {
       sound: true,
     );
     
-    print('📱 [Flutter] Permission status: ${settings.authorizationStatus}');
+    print('📱 [Flutter] FCM Permission status: ${settings.authorizationStatus}');
     
     // ✅ إذا كان الإذن مرفوضاً، افتح الإعدادات
     if (settings.authorizationStatus == AuthorizationStatus.denied) {
       print('⚠️ [Flutter] Notification permission denied, opening settings...');
-      await openAppSettings();
-      
-      // ✅ إعادة المحاولة بعد فتح الإعدادات
-      settings = await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      print('📱 [Flutter] Permission status after settings: ${settings.authorizationStatus}');
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await openAppSettings();
+      }
     }
     
     await messaging.setForegroundNotificationPresentationOptions(
@@ -534,6 +526,7 @@ class _DriverHomeState extends State<DriverHome> {
     });
     
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      print('📱 [Flutter] App opened from notification');
       stopGlobalAlertSound();
       _overlayEntry?.remove();
       _overlayEntry = null;
@@ -542,6 +535,7 @@ class _DriverHomeState extends State<DriverHome> {
     
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
+        print('📱 [Flutter] App opened from terminated state');
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
@@ -550,6 +544,7 @@ class _DriverHomeState extends State<DriverHome> {
     });
     
     FirebaseMessaging.onMessage.listen((message) {
+      print('📱 [Flutter] Message received in foreground');
       _handleFcmMessage(message);
     });
   }
@@ -597,6 +592,8 @@ class _DriverHomeState extends State<DriverHome> {
     final bool isTravelNotif = _travelTypes.contains(notifType);
     final bool isRideRequest = (notifType == _rideRequestType);
 
+    print('📱 [Foreground] Message type: $notifType');
+
     if (isTravelNotif) {
       await _showTravelNotification(data, message.notification?.title, message.notification?.body);
       return;
@@ -604,8 +601,13 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (isRideRequest) {
       String? rideId = _extractRideId(data);
-      if (await _isDuplicateRide(rideId)) return;
+      if (await _isDuplicateRide(rideId)) {
+        print('📱 [Foreground] Duplicate ride ignored');
+        return;
+      }
 
+      print('📱 [Foreground] 🚨 RIDE_REQUEST received!');
+      
       stopGlobalAlertSound();
       _playAlertSound();
       
@@ -682,6 +684,8 @@ class _DriverHomeState extends State<DriverHome> {
           String? rideId = _extractRideId(rideData);
           if (await _isDuplicateRide(rideId)) return;
 
+          print('📱 [Supabase] 🚨 New ride request inserted!');
+          
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
@@ -753,7 +757,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _stopAlerts() {
-    print(' إيقاف جميع التنبيهات...');
+    print('🛑 إيقاف جميع التنبيهات...');
     stopGlobalAlertSound();
     
     if (_overlayEntry != null) {
@@ -768,13 +772,26 @@ class _DriverHomeState extends State<DriverHome> {
 
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
     try {
+      // ✅ تحقق من إذن الإشعارات قبل العرض
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final status = await Permission.notification.status;
+        if (!status.isGranted) {
+          print('⚠️ [Flutter] Notification permission not granted, requesting...');
+          final newStatus = await Permission.notification.request();
+          if (!newStatus.isGranted) {
+            print('❌ [Flutter] Notification permission denied, cannot show notification');
+            return;
+          }
+        }
+      }
+
       String name = data['customer_name'] ?? 'عميل';
       String amount = data['amount']?.toString() ?? '0';
       String? rideId = _extractRideId(data);
 
       print('📱 [Flutter] Showing notification for ride: $rideId');
       
-      await notifications.show(
+      final result = await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
         '🚨 طلب رحلة جديد',
         '$name - $amount SDG',
@@ -794,12 +811,13 @@ class _DriverHomeState extends State<DriverHome> {
             channelShowBadge: true,
             visibility: fln.NotificationVisibility.public,
             timeoutAfter: 30000,
+            styleInformation: const fln.BigTextStyleInformation(''),
           ),
         ),
         payload: jsonEncode(data),
       );
       
-      print('✅ [Flutter] Notification shown successfully');
+      print('✅ [Flutter] Notification shown successfully, result: $result');
     } catch (e) {
       print('❌ خطأ في عرض الإشعار: $e');
     }
@@ -810,11 +828,13 @@ class _DriverHomeState extends State<DriverHome> {
       final String finalTitle = title ?? 'تراكا';
       final String finalBody = body ?? 'لديك إشعار جديد';
       await notifications.show(
-        DateTime.now().millisecond, finalTitle, finalBody,
-        const fln.NotificationDetails(
+        DateTime.now().millisecond,
+        finalTitle,
+        finalBody,
+        fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
-            'travel_notifications',
-            'إشعارات السفر - تراكا',
+            _travelChannelId,
+            _travelChannelName,
             importance: fln.Importance.high,
             priority: fln.Priority.high,
             playSound: true,
@@ -823,7 +843,9 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
-    } catch (_) {}
+    } catch (e) {
+      print('❌ Error showing travel notification: $e');
+    }
   }
 
   void _showRideRequestModal(Map<String, dynamic> data) {
@@ -916,7 +938,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
-    print(' قبول الرحلة - إيقاف التنبيهات...');
+    print('✅ قبول الرحلة - إيقاف التنبيهات...');
     _stopAlerts();
     
     try { 
@@ -939,7 +961,9 @@ class _DriverHomeState extends State<DriverHome> {
     if (web == null) return;
     try {
       await web!.evaluateJavascript(source: "if(typeof handleRideRequest === 'function') handleRideRequest(${jsonEncode(data)});");
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Error sending to PWA: $e');
+    }
   }
 
   void _notifyPWAOfDriver(String id) { 
