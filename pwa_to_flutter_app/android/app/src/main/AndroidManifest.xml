@@ -95,7 +95,7 @@
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
             android:exported="false" />
 
-        <!-- ✅ خدمة الخلفية -->
+        <!-- ✅ خدمة الخلفية - مع تحديد type كـ location للتوافق مع Google Play -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="location"
@@ -137,6 +137,28 @@
         <meta-data
             android:name="flutter_local_notifications.default_channel_description"
             android:value="قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي" />
+
+        <!-- ✅ قناة إشعارات السفر -->
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_id"
+            android:value="travel_notifications" />
+
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_name"
+            android:value="إشعارات السفر - تراكا" />
+
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_description"
+            android:value="إشعارات قبول الرحلات والمحادثات" />
+
+        <!-- ✅ قناة خدمة الخلفية -->
+        <meta-data
+            android:name="flutter_foreground_task.notification_channel_id"
+            android:value="foreground_service" />
+
+        <meta-data
+            android:name="flutter_foreground_task.notification_channel_name"
+            android:value="خدمة تراكا تعمل حالياً" />
 
     </application>
 
