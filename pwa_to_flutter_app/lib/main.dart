@@ -266,7 +266,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     } catch (_) {}
 
     String? rideId = _extractRideId(data);
-    final result = await _globalNotifications.show(
+    await _globalNotifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
       title,
       body,
@@ -291,7 +291,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
-    print('📱 [Background] Ride notification shown, result: $result');
+    print('📱 [Background] Ride notification shown');
   }
 }
 
@@ -791,7 +791,7 @@ class _DriverHomeState extends State<DriverHome> {
 
       print('📱 [Flutter] Showing notification for ride: $rideId');
       
-      final result = await notifications.show(
+      await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
         '🚨 طلب رحلة جديد',
         '$name - $amount SDG',
@@ -817,7 +817,7 @@ class _DriverHomeState extends State<DriverHome> {
         payload: jsonEncode(data),
       );
       
-      print('✅ [Flutter] Notification shown successfully, result: $result');
+      print('✅ [Flutter] Notification shown successfully');
     } catch (e) {
       print('❌ خطأ في عرض الإشعار: $e');
     }
