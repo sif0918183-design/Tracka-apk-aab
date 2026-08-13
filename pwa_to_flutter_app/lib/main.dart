@@ -155,7 +155,7 @@ void _vibratePhoneBackground() {
 // ✅ دالة إنشاء قنوات الإشعارات (للاستخدام في الخلفية والأمامية)
 Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlugin? androidImpl) async {
   if (androidImpl == null) return;
-  
+
   try {
     // حذف القنوات القديمة
     for (int i = 10; i <= 20; i++) {
@@ -164,7 +164,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
         await androidImpl.deleteNotificationChannel('emergency_channel_backup_v$i');
       } catch (_) {}
     }
-    
+
     // ✅ قناة الطوارئ
     final emergencyChan = fln.AndroidNotificationChannel(
       _emergencyChannelId,
@@ -177,7 +177,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
     );
     await androidImpl.createNotificationChannel(emergencyChan);
-    
+
     // ✅ قناة السفر
     const travelChan = fln.AndroidNotificationChannel(
       _travelChannelId,
@@ -188,7 +188,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       enableVibration: true,
     );
     await androidImpl.createNotificationChannel(travelChan);
-    
+
     // ✅ قناة خدمة الخلفية
     const serviceChan = fln.AndroidNotificationChannel(
       'foreground_service',
@@ -199,7 +199,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       enableVibration: false,
     );
     await androidImpl.createNotificationChannel(serviceChan);
-    
+
     print('✅ [Flutter] All notification channels created successfully');
   } catch (e) {
     print('❌ [Flutter] Error creating channels: $e');
@@ -210,11 +210,11 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // ✅ إعادة تهيئة Firebase في الخلفية
   await Firebase.initializeApp();
-  
+
   // ✅ إعادة تهيئة الإشعارات في الخلفية
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
-  
+
   // ✅ إنشاء القنوات في الخلفية
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
@@ -291,7 +291,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
-    print('📱 [Background] Ride notification shown');
+    print('📱 [Background] Ride notification shown successfully');
   }
 }
 
@@ -321,7 +321,7 @@ Future<void> main() async {
   await _globalNotifications.initialize(
     const fln.InitializationSettings(android: androidInit),
   );
-  
+
   // ✅ إنشاء القنوات مبكراً
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
@@ -331,24 +331,24 @@ Future<void> main() async {
   // ✅ طلب الأذونات
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
-    
+
     // 1. طلب أذونات الإشعارات أولاً (الأهم)
     if (defaultTargetPlatform == TargetPlatform.android) {
       final notificationStatus = await Permission.notification.request();
       print('📱 [Flutter] Notification permission status: $notificationStatus');
-      
+
       if (notificationStatus.isPermanentlyDenied) {
         print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
         await openAppSettings();
       }
-      
+
       // تأكد من منح الإذن
       if (!notificationStatus.isGranted) {
         final retryStatus = await Permission.notification.request();
         print('📱 [Flutter] Notification permission after retry: $retryStatus');
       }
     }
-    
+
     // 2. طلب أذونات الموقع
     await [
       Permission.location,
@@ -361,7 +361,7 @@ Future<void> main() async {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
     }
-    
+
     print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
@@ -479,7 +479,7 @@ class _DriverHomeState extends State<DriverHome> {
     );
     
     print('📱 [Flutter] FCM Permission status: ${settings.authorizationStatus}');
-    
+
     // ✅ إذا كان الإذن مرفوضاً، افتح الإعدادات
     if (settings.authorizationStatus == AuthorizationStatus.denied) {
       print('⚠️ [Flutter] Notification permission denied, opening settings...');
@@ -607,16 +607,16 @@ class _DriverHomeState extends State<DriverHome> {
       }
 
       print('📱 [Foreground] 🚨 RIDE_REQUEST received!');
-      
+
       stopGlobalAlertSound();
       _playAlertSound();
       
       // ✅ عرض الإشعار أولاً
       await _showLocalNotification(data);
-      
+
       // ✅ ثم عرض المودال
       _showRideRequestModal(data);
-      
+
       // ✅ إرسال إلى PWA
       await _sendToPWA(data);
       
@@ -685,7 +685,7 @@ class _DriverHomeState extends State<DriverHome> {
           if (await _isDuplicateRide(rideId)) return;
 
           print('📱 [Supabase] 🚨 New ride request inserted!');
-          
+
           _playAlertSound();
           await _showLocalNotification(rideData);
           _showRideRequestModal(rideData);
@@ -790,7 +790,7 @@ class _DriverHomeState extends State<DriverHome> {
       String? rideId = _extractRideId(data);
 
       print('📱 [Flutter] Showing notification for ride: $rideId');
-      
+
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
         '🚨 طلب رحلة جديد',
@@ -816,7 +816,7 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         payload: jsonEncode(data),
       );
-      
+
       print('✅ [Flutter] Notification shown successfully');
     } catch (e) {
       print('❌ خطأ في عرض الإشعار: $e');
