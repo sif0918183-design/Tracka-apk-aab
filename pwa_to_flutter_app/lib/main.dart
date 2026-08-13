@@ -644,7 +644,7 @@ class _DriverHomeState extends State<DriverHome> {
       stopGlobalAlertSound();
       _playAlertSound();
       
-      // ✅ عرض الإشعار عبر Native أولاً
+      // ✅ عرض الإشعار عبر Native
       await _showLocalNotification(data);
       
       // ✅ ثم عرض المودال
@@ -801,7 +801,7 @@ class _DriverHomeState extends State<DriverHome> {
     _cancelAllNotifications();
   }
 
-  // ✅ عرض الإشعار عبر Native Android
+  // ✅ عرض الإشعار عبر Native Android (MethodChannel)
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
     try {
       // ✅ تحقق من إذن الإشعارات قبل العرض
