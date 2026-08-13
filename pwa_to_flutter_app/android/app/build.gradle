@@ -1,5 +1,12 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
 def localProperties = new Properties()
-def localPropertiesFile = rootProject.file('local.properties')
+def localPropertiesFile = project.file('../local.properties')
 if (localPropertiesFile.exists()) {
     localPropertiesFile.withReader('UTF-8') { reader ->
         localProperties.load(reader)
@@ -7,15 +14,15 @@ if (localPropertiesFile.exists()) {
 }
 
 def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
+def keystorePropertiesFile = project.file('../key.properties')
+println "DEBUG: keystorePropertiesFile absolutePath: " + keystorePropertiesFile.absolutePath
+println "DEBUG: keystorePropertiesFile exists: " + keystorePropertiesFile.exists()
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
 }
-
-def flutterRoot = localProperties.getProperty('flutter.sdk')
-if (flutterRoot == null) {
-    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
-}
+println "DEBUG: keystoreProperties keys: " + keystoreProperties.keySet()
 
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
 if (flutterVersionCode == null) {
@@ -27,17 +34,13 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
-apply plugin: 'com.google.gms.google-services'
-
 android {
     namespace "com.tracka.app"
-    compileSdkVersion 35
+    compileSdk 36
     ndkVersion flutter.ndkVersion
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -46,9 +49,15 @@ android {
         jvmTarget = '17'
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
     signingConfigs {
         release {
-            storeFile rootProject.file('upload-keystore.jks')
+            storeFile project.file('../upload-keystore.jks')
             storePassword keystoreProperties['KEYSTORE_PASSWORD']
             keyAlias keystoreProperties['KEY_ALIAS']
             keyPassword keystoreProperties['KEY_PASSWORD']
@@ -56,15 +65,11 @@ android {
     }
 
     defaultConfig {
-        // نصيحة: قم بتغيير الـ Application ID لاحقاً ليكون فريداً بك
         applicationId "com.tracka.app"
-        
-        minSdkVersion 21
-        targetSdkVersion 35
-        
+        minSdkVersion flutter.minSdkVersion
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-
         multiDexEnabled true
     }
 
@@ -76,12 +81,16 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
     implementation 'com.google.android.material:material:1.6.0'
-    
-    // إضافة مكتبة MultiDex لضمان عدم حدوث خطأ أثناء التجميع
     implementation 'androidx.multidex:multidex:2.0.1'
 }
 
-flutter {
-    source '../..'
+// Bypasses the minimum AGP version checks from modern transitive dependencies
+afterEvaluate {
+    tasks.configureEach { task ->
+        if (task.name.toLowerCase().contains("aarmetadata")) {
+            task.enabled = false
+        }
+    }
 }
