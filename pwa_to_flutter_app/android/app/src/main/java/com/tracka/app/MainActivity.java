@@ -15,24 +15,20 @@ import io.flutter.plugin.common.MethodChannel;
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
     public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
-
-    // ✅ متغير لتخزين البيانات القادمة من الإشعار
+    
+    private FlutterEngine flutterEngineInstance;
     private String pendingPayload = null;
-    private String pendingRideId = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         createNotificationChannels();
-
-        // ✅ معالجة الـ Intent إذا تم فتح التطبيق من الإشعار
         handleIntent(getIntent());
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // ✅ معالجة الـ Intent عند فتح التطبيق من الإشعار (singleTop mode)
         handleIntent(intent);
     }
 
@@ -43,19 +39,17 @@ public class MainActivity extends FlutterActivity {
             String rideId = intent.getStringExtra("ride_id");
             String type = intent.getStringExtra("type");
 
-            System.out.println("📱 [MainActivity] Intent received - Action: " + action);
+            System.out.println("📱 [MainActivity] Intent received");
+            System.out.println("📱 [MainActivity] Action: " + action);
             System.out.println("📱 [MainActivity] Ride ID: " + rideId);
             System.out.println("📱 [MainActivity] Type: " + type);
 
             if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
                 pendingPayload = payload;
-                pendingRideId = rideId;
-
-                // ✅ إرسال البيانات إلى Flutter عبر MethodChannel
-                FlutterEngine engine = getFlutterEngine();
-                if (engine != null) {
-                    new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), CHANNEL)
-                        .invokeMethod("onNotificationOpened", payload);
+                
+                if (flutterEngineInstance != null) {
+                    new MethodChannel(flutterEngineInstance.getDartExecutor().getBinaryMessenger(), CHANNEL)
+                        .invokeMethod("onNotificationOpened", payload != null ? payload : "");
                 }
             }
         }
@@ -64,6 +58,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
+        this.flutterEngineInstance = flutterEngine;
 
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
@@ -77,7 +72,6 @@ public class MainActivity extends FlutterActivity {
                     cancelAllNotifications();
                     result.success(true);
                 } else if (call.method.equals("getPendingNotification")) {
-                    // ✅ إرجاع البيانات المعلقة إلى Flutter
                     if (pendingPayload != null) {
                         result.success(pendingPayload);
                         pendingPayload = null;
@@ -88,8 +82,7 @@ public class MainActivity extends FlutterActivity {
                     result.notImplemented();
                 }
             });
-
-        // ✅ إذا كان هناك بيانات معلقة، أرسلها إلى Flutter
+        
         if (pendingPayload != null) {
             new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
                 .invokeMethod("onNotificationOpened", pendingPayload);
@@ -101,7 +94,6 @@ public class MainActivity extends FlutterActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-            // ✅ قناة الطوارئ
             NotificationChannel emergencyChannel = new NotificationChannel(
                 EMERGENCY_CHANNEL_ID,
                 "تنبيهات الطوارئ - تراكا",
@@ -114,7 +106,6 @@ public class MainActivity extends FlutterActivity {
             emergencyChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(emergencyChannel);
 
-            // ✅ قناة السفر
             NotificationChannel travelChannel = new NotificationChannel(
                 "travel_notifications",
                 "إشعارات السفر - تراكا",
@@ -126,7 +117,6 @@ public class MainActivity extends FlutterActivity {
             travelChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(travelChannel);
 
-            // ✅ قناة الخدمة
             NotificationChannel serviceChannel = new NotificationChannel(
                 "foreground_service",
                 "خدمة تراكا تعمل حالياً",
@@ -167,6 +157,15 @@ public class MainActivity extends FlutterActivity {
                 .setVibrate(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500})
                 .setContentIntent(pendingIntent)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
+
+            try {
+                int soundResId = context.getResources().getIdentifier("ride_request_sound", "raw", context.getPackageName());
+                if (soundResId > 0) {
+                    notification.setSound(android.net.Uri.parse("android.resource://" + context.getPackageName() + "/raw/ride_request_sound"));
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Sound resource not found");
+            }
 
             int notificationId = (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notification.build());
