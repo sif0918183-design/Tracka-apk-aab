@@ -4,6 +4,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import androidx.core.app.NotificationCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
@@ -17,19 +18,27 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         try {
             // ✅ استخراج البيانات
             String type = message.getData().get("type");
+            String rideId = message.getData().get("ride_id");
+            if (rideId == null || rideId.isEmpty()) {
+                rideId = message.getData().get("rideId");
+            }
+            
             String title = message.getNotification() != null ?
                 message.getNotification().getTitle() : "🚨 طلب رحلة جديد";
             String body = message.getNotification() != null ?
                 message.getNotification().getBody() : "يوجد طلب رحلة جديد في انتظارك";
+            
+            // ✅ بناء payload كامل
             String payload = message.getData().toString();
 
             System.out.println("📱 [FCM Service] Received message type: " + type);
+            System.out.println("📱 [FCM Service] Ride ID: " + rideId);
             System.out.println("📱 [FCM Service] Title: " + title);
             System.out.println("📱 [FCM Service] Body: " + body);
 
             // ✅ إذا كان RIDE_REQUEST، اعرض إشعار الطوارئ
             if ("RIDE_REQUEST".equals(type)) {
-                showEmergencyNotification(title, body, payload);
+                showEmergencyNotification(title, body, payload, rideId);
             } else {
                 // إشعار عادي
                 showNormalNotification(title, body, payload);
@@ -40,17 +49,21 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         }
     }
 
-    private void showEmergencyNotification(String title, String body, String payload) {
+    private void showEmergencyNotification(String title, String body, String payload, String rideId) {
         try {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
+            // ✅ Intent لفتح التطبيق مع تمرير rideId
             Intent intent = new Intent(this, MainActivity.class);
+            intent.setAction("OPEN_RIDE_REQUEST");
             intent.putExtra("payload", payload);
+            intent.putExtra("ride_id", rideId);
+            intent.putExtra("type", "RIDE_REQUEST");
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
-                0,
+                (int) System.currentTimeMillis(),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
