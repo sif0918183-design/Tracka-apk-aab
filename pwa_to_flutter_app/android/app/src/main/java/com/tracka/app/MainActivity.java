@@ -16,6 +16,9 @@ public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
     public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
     
+    // ✅ متغير لتخزين FlutterEngine
+    private FlutterEngine flutterEngineInstance;
+    
     // ✅ متغير لتخزين البيانات القادمة من الإشعار
     private String pendingPayload = null;
     private String pendingRideId = null;
@@ -52,8 +55,8 @@ public class MainActivity extends FlutterActivity {
                 pendingRideId = rideId;
                 
                 // ✅ إرسال البيانات إلى Flutter عبر MethodChannel
-                if (flutterEngine != null) {
-                    new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
+                if (flutterEngineInstance != null) {
+                    new MethodChannel(flutterEngineInstance.getDartExecutor().getBinaryMessenger(), CHANNEL)
                         .invokeMethod("onNotificationOpened", payload);
                 }
             }
@@ -63,6 +66,9 @@ public class MainActivity extends FlutterActivity {
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
+        
+        // ✅ تخزين الـ FlutterEngine
+        this.flutterEngineInstance = flutterEngine;
 
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
