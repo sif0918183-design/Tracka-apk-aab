@@ -468,19 +468,58 @@ class _DriverHomeState extends State<DriverHome> {
   // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
 
+  // ✅ دالة لعرض رسالة على الشاشة
+  void _showDebugMessage(String message, {bool isError = false}) {
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 14),
+        ),
+        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    print('📱 [Flutter] Debug: $message');
+  }
+
   @override
   void initState() {
     super.initState();
 
+    // ✅ عرض رسالة بداية
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showDebugMessage('🚀 التطبيق جاهز، انتظر الإشعارات');
+    });
+
     // ✅ استماع لفتح الإشعار من Native
     _nativeChannel.setMethodCallHandler((call) async {
+      print('📱 [Flutter] MethodChannel call received: ${call.method}');
+      _showDebugMessage('📱 استدعاء من Native: ${call.method}');
+      
       if (call.method == 'onNotificationOpened') {
         final payload = call.arguments as String;
+        print('📱 [Flutter] Notification opened from Native: $payload');
+        _showDebugMessage('📱 تم فتح الإشعار من Native');
+        
         try {
           final data = jsonDecode(payload);
+          print('📱 [Flutter] Parsed data: $data');
+          _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
           _handleNotificationClick(data);
+          
+          // ✅ مسح الإشعار المعلق بعد معالجته
+          await _nativeChannel.invokeMethod('clearPendingNotification');
+          _showDebugMessage('🗑️ تم مسح الإشعار المعلق');
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
+          _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
         }
       }
     });
@@ -488,6 +527,11 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    
+    // ✅ التحقق من الإشعارات المعلقة بعد تحميل الصفحة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingNotification();
+    });
   }
 
   @override
@@ -499,6 +543,40 @@ class _DriverHomeState extends State<DriverHome> {
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
     super.dispose();
+  }
+
+  // ✅ التحقق من الإشعارات المعلقة من Native
+  Future<void> _checkPendingNotification() async {
+    try {
+      print('📱 [Flutter] Checking for pending notification...');
+      _showDebugMessage('🔍 جارٍ التحقق من الإشعارات المعلقة...');
+      
+      final String? payload = await _nativeChannel.invokeMethod('getPendingNotification');
+      if (payload != null && payload.isNotEmpty) {
+        print('📱 [Flutter] ✅ Pending notification found: $payload');
+        _showDebugMessage('✅ تم العثور على إشعار معلق');
+        
+        try {
+          final data = jsonDecode(payload);
+          print('📱 [Flutter] Parsed pending data: $data');
+          _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
+          _handleNotificationClick(data);
+          
+          // ✅ مسح الإشعار المعلق بعد معالجته
+          await _nativeChannel.invokeMethod('clearPendingNotification');
+          _showDebugMessage('🗑️ تم مسح الإشعار المعلق');
+        } catch (e) {
+          print('❌ Error parsing pending notification: $e');
+          _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
+        }
+      } else {
+        print('📱 [Flutter] No pending notification');
+        _showDebugMessage('ℹ️ لا يوجد إشعارات معلقة');
+      }
+    } catch (e) {
+      print('⚠️ Error checking pending notification: $e');
+      _showDebugMessage('⚠️ خطأ في التحقق: $e', isError: true);
+    }
   }
 
   Future<void> _initFirebaseMessaging() async {
@@ -559,7 +637,8 @@ class _DriverHomeState extends State<DriverHome> {
     });
     
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      print('📱 [Flutter] App opened from notification');
+      print('📱 [Flutter] App opened from notification (FCM)');
+      _showDebugMessage('📱 فتح من الإشعار (FCM)');
       stopGlobalAlertSound();
       _overlayEntry?.remove();
       _overlayEntry = null;
@@ -568,7 +647,8 @@ class _DriverHomeState extends State<DriverHome> {
     
     messaging.getInitialMessage().then((message) { 
       if (message != null) {
-        print('📱 [Flutter] App opened from terminated state');
+        print('📱 [Flutter] App opened from terminated state (FCM)');
+        _showDebugMessage('📱 فتح من الإشعار (مغلق)');
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
@@ -583,6 +663,12 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
+    print('📱 [Flutter] ========== HANDLE NOTIFICATION CLICK ==========');
+    print('📱 [Flutter] Data: $data');
+    
+    // ✅ عرض رسالة على الشاشة
+    _showDebugMessage('📱 تم فتح الإشعار: ${data.toString().substring(0, 100)}...');
+    
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
@@ -591,6 +677,8 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry = null;
 
     if (isTravelNotif) {
+      print('📱 [Flutter] Travel notification - opening travel platform');
+      _showDebugMessage('📱 فتح منصة السفر');
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
@@ -600,23 +688,43 @@ class _DriverHomeState extends State<DriverHome> {
       return;
     }
 
+    // ✅ استخراج ride_id من البيانات
     dynamic rideId = data['ride_id'] ?? data['rideId'];
 
     if (rideId == null && data['payload'] != null) {
       try {
         final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
         rideId = payloadData['ride_id'] ?? payloadData['rideId'];
-      } catch (_) {}
+        print('📱 [Flutter] Extracted rideId from payload: $rideId');
+        _showDebugMessage('📱 استخراج rideId من payload: $rideId');
+      } catch (e) {
+        print('❌ Error extracting rideId from payload: $e');
+        _showDebugMessage('❌ خطأ في استخراج rideId: $e', isError: true);
+      }
     }
 
     if (rideId != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      print('📱 [Flutter] ✅ Opening URL: $url');
+      _showDebugMessage('✅ فتح الرحلة ID: $rideId');
+      
       if (web != null) {
+        print('📱 [Flutter] WebView available - loading URL');
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
       } else {
+        print('📱 [Flutter] WebView not available - setting pending URL');
         setState(() => _pendingUrl = url);
+        _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
       }
+    } else {
+      print('⚠️ [Flutter] No rideId found in notification data');
+      print('📱 [Flutter] Full data: $data');
+      _showDebugMessage('⚠️ لا يوجد rideId في بيانات الإشعار!', isError: true);
+      _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 200)}', isError: true);
     }
+    
+    print('📱 [Flutter] ===============================================');
   }
 
   void _handleFcmMessage(RemoteMessage message) async {
@@ -640,6 +748,7 @@ class _DriverHomeState extends State<DriverHome> {
       }
 
       print('📱 [Foreground] 🚨 RIDE_REQUEST received!');
+      _showDebugMessage('🚨 تم استلام طلب رحلة جديد!');
 
       stopGlobalAlertSound();
       _playAlertSound();
@@ -718,6 +827,7 @@ class _DriverHomeState extends State<DriverHome> {
           if (await _isDuplicateRide(rideId)) return;
 
           print('📱 [Supabase] 🚨 New ride request inserted!');
+          _showDebugMessage('🚨 طلب رحلة جديد من Supabase!');
 
           _playAlertSound();
           await _showLocalNotification(rideData);
@@ -791,6 +901,7 @@ class _DriverHomeState extends State<DriverHome> {
 
   void _stopAlerts() {
     print('🛑 إيقاف جميع التنبيهات...');
+    _showDebugMessage('🛑 إيقاف التنبيهات');
     stopGlobalAlertSound();
     
     if (_overlayEntry != null) {
@@ -809,9 +920,11 @@ class _DriverHomeState extends State<DriverHome> {
         final status = await Permission.notification.status;
         if (!status.isGranted) {
           print('⚠️ [Flutter] Notification permission not granted, requesting...');
+          _showDebugMessage('⚠️ طلب إذن الإشعارات...');
           final newStatus = await Permission.notification.request();
           if (!newStatus.isGranted) {
             print('❌ [Flutter] Notification permission denied, cannot show notification');
+            _showDebugMessage('❌ إذن الإشعارات مرفوض!', isError: true);
             return;
           }
         }
@@ -822,6 +935,7 @@ class _DriverHomeState extends State<DriverHome> {
       final String payload = jsonEncode(data);
 
       print('📱 [Flutter] Showing notification via Native: $title');
+      _showDebugMessage('📱 عرض إشعار عبر Native');
 
       // ✅ استخدام Native method
       await _nativeChannel.invokeMethod('showEmergencyNotification', {
@@ -831,13 +945,16 @@ class _DriverHomeState extends State<DriverHome> {
       });
 
       print('✅ [Flutter] Notification shown via Native');
+      _showDebugMessage('✅ تم عرض الإشعار');
     } catch (e) {
       print('❌ Error showing notification via Native: $e');
+      _showDebugMessage('❌ خطأ في عرض الإشعار: $e', isError: true);
       // ✅ Fallback إلى flutter_local_notifications
       try {
         await _showLocalNotificationFallback(data);
       } catch (fallbackError) {
         print('❌ Fallback notification also failed: $fallbackError');
+        _showDebugMessage('❌ فشل Fallback: $fallbackError', isError: true);
       }
     }
   }
@@ -850,6 +967,7 @@ class _DriverHomeState extends State<DriverHome> {
       String? rideId = _extractRideId(data);
 
       print('📱 [Flutter] Showing fallback notification for ride: $rideId');
+      _showDebugMessage('📱 عرض Fallback للرحلة: $rideId');
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
@@ -878,8 +996,10 @@ class _DriverHomeState extends State<DriverHome> {
       );
 
       print('✅ [Flutter] Fallback notification shown successfully');
+      _showDebugMessage('✅ تم عرض Fallback بنجاح');
     } catch (e) {
       print('❌ Fallback notification error: $e');
+      _showDebugMessage('❌ خطأ في Fallback: $e', isError: true);
       rethrow;
     }
   }
@@ -905,8 +1025,10 @@ class _DriverHomeState extends State<DriverHome> {
         payload: jsonEncode(data),
       );
       print('✅ [Flutter] Travel notification shown');
+      _showDebugMessage('✅ تم عرض إشعار السفر');
     } catch (e) {
       print('❌ Error showing travel notification: $e');
+      _showDebugMessage('❌ خطأ في عرض إشعار السفر: $e', isError: true);
     }
   }
 
@@ -1001,6 +1123,7 @@ class _DriverHomeState extends State<DriverHome> {
 
   Future<void> _acceptRide(Map<String, dynamic> data) async {
     print('✅ قبول الرحلة - إيقاف التنبيهات...');
+    _showDebugMessage('✅ قبول الرحلة');
     _stopAlerts();
     
     try { 
@@ -1011,11 +1134,13 @@ class _DriverHomeState extends State<DriverHome> {
     if (rideId != null && web != null) {
       final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
       await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+      _showDebugMessage('🌐 فتح صفحة القبول');
     }
   }
 
   void _rejectRide() {
     print('❌ رفض الرحلة - إيقاف التنبيهات...');
+    _showDebugMessage('❌ رفض الرحلة');
     _stopAlerts();
   }
 
@@ -1257,6 +1382,7 @@ class _DriverHomeState extends State<DriverHome> {
 
                 if (currentUrl.contains('accept-ride.html')) {
                   print('📱 [Flutter] 📍 accept-ride.html loaded - stopping alerts');
+                  _showDebugMessage('📍 تم فتح صفحة القبول');
                   _stopAlerts();
                 }
               }
