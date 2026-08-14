@@ -15,10 +15,7 @@ import io.flutter.plugin.common.MethodChannel;
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
     public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
-    
-    // ✅ متغير لتخزين FlutterEngine
-    private FlutterEngine flutterEngineInstance;
-    
+
     // ✅ متغير لتخزين البيانات القادمة من الإشعار
     private String pendingPayload = null;
     private String pendingRideId = null;
@@ -27,7 +24,7 @@ public class MainActivity extends FlutterActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         createNotificationChannels();
-        
+
         // ✅ معالجة الـ Intent إذا تم فتح التطبيق من الإشعار
         handleIntent(getIntent());
     }
@@ -53,10 +50,11 @@ public class MainActivity extends FlutterActivity {
             if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
                 pendingPayload = payload;
                 pendingRideId = rideId;
-                
+
                 // ✅ إرسال البيانات إلى Flutter عبر MethodChannel
-                if (flutterEngineInstance != null) {
-                    new MethodChannel(flutterEngineInstance.getDartExecutor().getBinaryMessenger(), CHANNEL)
+                FlutterEngine engine = getFlutterEngine();
+                if (engine != null) {
+                    new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), CHANNEL)
                         .invokeMethod("onNotificationOpened", payload);
                 }
             }
@@ -66,9 +64,6 @@ public class MainActivity extends FlutterActivity {
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
-        
-        // ✅ تخزين الـ FlutterEngine
-        this.flutterEngineInstance = flutterEngine;
 
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
@@ -93,7 +88,7 @@ public class MainActivity extends FlutterActivity {
                     result.notImplemented();
                 }
             });
-        
+
         // ✅ إذا كان هناك بيانات معلقة، أرسلها إلى Flutter
         if (pendingPayload != null) {
             new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)

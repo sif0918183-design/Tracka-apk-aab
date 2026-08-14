@@ -22,12 +22,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             if (rideId == null || rideId.isEmpty()) {
                 rideId = message.getData().get("rideId");
             }
-            
+
             String title = message.getNotification() != null ?
                 message.getNotification().getTitle() : "🚨 طلب رحلة جديد";
             String body = message.getNotification() != null ?
                 message.getNotification().getBody() : "يوجد طلب رحلة جديد في انتظارك";
-            
+
             // ✅ بناء payload كامل
             String payload = message.getData().toString();
 
