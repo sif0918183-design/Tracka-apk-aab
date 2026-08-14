@@ -4,11 +4,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
 import androidx.core.app.NotificationCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
-import org.json.JSONObject;
 
 public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
@@ -17,46 +15,36 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(message);
 
         try {
-            // ✅ استخراج البيانات من RemoteMessage
+            // ✅ استخراج البيانات
             String type = message.getData().get("type");
             String rideId = message.getData().get("ride_id");
             String customerName = message.getData().get("customer_name");
             String amount = message.getData().get("amount");
             
-            // ✅ إذا لم توجد ride_id في data، حاول من notification
-            if (rideId == null || rideId.isEmpty()) {
-                Bundle extras = message.toIntent().getExtras();
-                if (extras != null) {
-                    rideId = extras.getString("ride_id");
-                }
-            }
-
             String title = message.getNotification() != null ?
                 message.getNotification().getTitle() : "🚨 طلب رحلة جديد";
             String body = message.getNotification() != null ?
                 message.getNotification().getBody() : "يوجد طلب رحلة جديد في انتظارك";
 
-            // ✅ بناء payload كامل مع جميع البيانات
-            JSONObject payload = new JSONObject();
-            payload.put("ride_id", rideId != null ? rideId : "");
-            payload.put("type", type != null ? type : "RIDE_REQUEST");
-            payload.put("customer_name", customerName != null ? customerName : "");
-            payload.put("amount", amount != null ? amount : "0");
-            
-            String payloadString = payload.toString();
+            // ✅ بناء payload
+            String payload = "{";
+            payload += "\"ride_id\":\"" + (rideId != null ? rideId : "") + "\",";
+            payload += "\"type\":\"" + (type != null ? type : "RIDE_REQUEST") + "\",";
+            payload += "\"customer_name\":\"" + (customerName != null ? customerName : "") + "\",";
+            payload += "\"amount\":\"" + (amount != null ? amount : "0") + "\"";
+            payload += "}";
 
             System.out.println("📱 [FCM Service] Received message");
             System.out.println("📱 [FCM Service] Type: " + type);
             System.out.println("📱 [FCM Service] Ride ID: " + rideId);
             System.out.println("📱 [FCM Service] Title: " + title);
             System.out.println("📱 [FCM Service] Body: " + body);
-            System.out.println("📱 [FCM Service] Payload: " + payloadString);
 
             // ✅ إذا كان RIDE_REQUEST، اعرض إشعار الطوارئ
             if ("RIDE_REQUEST".equals(type)) {
-                showEmergencyNotification(title, body, payloadString, rideId);
+                showEmergencyNotification(title, body, payload, rideId);
             } else {
-                showNormalNotification(title, body, payloadString);
+                showNormalNotification(title, body, payload);
             }
 
         } catch (Exception e) {
