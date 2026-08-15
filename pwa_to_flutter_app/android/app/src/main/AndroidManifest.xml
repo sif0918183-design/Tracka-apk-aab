@@ -106,7 +106,7 @@
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
             android:exported="false" />
 
-        <!-- ✅ خدمة الخلفية - مع تحديد type كـ location للتوافق مع Google Play -->
+        <!-- ✅ خدمة الخلفية -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
             android:foregroundServiceType="location"
