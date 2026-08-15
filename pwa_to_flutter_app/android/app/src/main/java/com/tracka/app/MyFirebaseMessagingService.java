@@ -7,6 +7,7 @@ import android.content.Intent;
 import androidx.core.app.NotificationCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
+import org.json.JSONObject;
 
 public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
@@ -26,25 +27,27 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             String body = message.getNotification() != null ?
                 message.getNotification().getBody() : "يوجد طلب رحلة جديد في انتظارك";
 
-            // ✅ بناء payload
-            String payload = "{";
-            payload += "\"ride_id\":\"" + (rideId != null ? rideId : "") + "\",";
-            payload += "\"type\":\"" + (type != null ? type : "RIDE_REQUEST") + "\",";
-            payload += "\"customer_name\":\"" + (customerName != null ? customerName : "") + "\",";
-            payload += "\"amount\":\"" + (amount != null ? amount : "0") + "\"";
-            payload += "}";
-
-            System.out.println("📱 [FCM Service] Received message");
+            System.out.println("📱 [FCM Service] ==============================");
             System.out.println("📱 [FCM Service] Type: " + type);
             System.out.println("📱 [FCM Service] Ride ID: " + rideId);
-            System.out.println("📱 [FCM Service] Title: " + title);
-            System.out.println("📱 [FCM Service] Body: " + body);
+            System.out.println("📱 [FCM Service] Customer: " + customerName);
+            System.out.println("📱 [FCM Service] Amount: " + amount);
+            System.out.println("📱 [FCM Service] ==============================");
+
+            // ✅ بناء payload كـ JSON
+            JSONObject payload = new JSONObject();
+            payload.put("ride_id", rideId != null ? rideId : "");
+            payload.put("type", type != null ? type : "RIDE_REQUEST");
+            payload.put("customer_name", customerName != null ? customerName : "");
+            payload.put("amount", amount != null ? amount : "0");
+            
+            String payloadString = payload.toString();
 
             // ✅ إذا كان RIDE_REQUEST، اعرض إشعار الطوارئ
             if ("RIDE_REQUEST".equals(type)) {
-                showEmergencyNotification(title, body, payload, rideId);
+                showEmergencyNotification(title, body, payloadString, rideId);
             } else {
-                showNormalNotification(title, body, payload);
+                showNormalNotification(title, body, payloadString);
             }
 
         } catch (Exception e) {
@@ -57,11 +60,11 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         try {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-            // ✅ Intent لفتح التطبيق مع تمرير rideId
+            // ✅ Intent مع جميع البيانات
             Intent intent = new Intent(this, MainActivity.class);
             intent.setAction("OPEN_RIDE_REQUEST");
             intent.putExtra("payload", payload);
-            intent.putExtra("ride_id", rideId);
+            intent.putExtra("ride_id", rideId != null ? rideId : "");
             intent.putExtra("type", "RIDE_REQUEST");
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
@@ -85,21 +88,21 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 .setContentIntent(pendingIntent)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
-            // ✅ إضافة الصوت إذا كان موجوداً
+            // ✅ إضافة الصوت
             try {
                 int soundResId = getResources().getIdentifier("ride_request_sound", "raw", getPackageName());
                 if (soundResId > 0) {
                     notification.setSound(android.net.Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound"));
                 }
             } catch (Exception e) {
-                System.err.println("⚠️ Sound resource not found, using default");
+                System.err.println("⚠️ Sound resource not found");
             }
 
             int notificationId = (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notification.build());
 
-            System.out.println("✅ [FCM Service] Emergency notification shown: " + title);
-            System.out.println("✅ [FCM Service] With rideId: " + rideId);
+            System.out.println("✅ [FCM Service] Emergency notification shown");
+            System.out.println("✅ [FCM Service] Payload: " + payload);
 
         } catch (Exception e) {
             System.err.println("❌ [FCM Service] Error showing emergency notification: " + e.getMessage());
@@ -134,7 +137,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             int notificationId = (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notification.build());
 
-            System.out.println("✅ [FCM Service] Normal notification shown: " + title);
+            System.out.println("✅ [FCM Service] Normal notification shown");
 
         } catch (Exception e) {
             System.err.println("❌ [FCM Service] Error showing normal notification: " + e.getMessage());
