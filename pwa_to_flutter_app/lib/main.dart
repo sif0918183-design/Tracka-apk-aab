@@ -155,12 +155,11 @@ void _vibratePhoneBackground() {
   } catch (_) {}
 }
 
-// ✅ دالة إنشاء قنوات الإشعارات (للاستخدام في الخلفية والأمامية)
+// ✅ دالة إنشاء قنوات الإشعارات
 Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlugin? androidImpl) async {
   if (androidImpl == null) return;
 
   try {
-    // حذف القنوات القديمة
     for (int i = 10; i <= 20; i++) {
       try {
         await androidImpl.deleteNotificationChannel('emergency_channel_v$i');
@@ -168,7 +167,6 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
       } catch (_) {}
     }
 
-    // ✅ قناة الطوارئ
     final emergencyChan = fln.AndroidNotificationChannel(
       _emergencyChannelId,
       _emergencyChannelName,
@@ -181,7 +179,6 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
     );
     await androidImpl.createNotificationChannel(emergencyChan);
 
-    // ✅ قناة السفر
     const travelChan = fln.AndroidNotificationChannel(
       _travelChannelId,
       _travelChannelName,
@@ -192,7 +189,6 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
     );
     await androidImpl.createNotificationChannel(travelChan);
 
-    // ✅ قناة خدمة الخلفية
     const serviceChan = fln.AndroidNotificationChannel(
       'foreground_service',
       'خدمة تراكا تعمل حالياً',
@@ -209,7 +205,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
   }
 }
 
-// ✅ دالة إلغاء جميع الإشعارات عبر Native
+// ✅ دالة إلغاء جميع الإشعارات
 void _cancelAllNotifications() {
   try {
     _nativeChannel.invokeMethod('cancelAllNotifications');
@@ -227,14 +223,11 @@ void _cancelAllNotifications() {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // ✅ إعادة تهيئة Firebase في الخلفية
   await Firebase.initializeApp();
 
-  // ✅ إعادة تهيئة الإشعارات في الخلفية
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
 
-  // ✅ إنشاء القنوات في الخلفية
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
     await _createNotificationChannels(androidImpl);
@@ -335,58 +328,50 @@ Future<void> main() async {
   await Firebase.initializeApp();
   print('✅ Firebase initialized');
 
-  // ✅ تهيئة الإشعارات مبكراً
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(
     const fln.InitializationSettings(android: androidInit),
   );
 
-  // ✅ إنشاء القنوات مبكراً
   final androidImpl = _globalNotifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImpl != null) {
     await _createNotificationChannels(androidImpl);
   }
 
-  // ✅ طلب الأذونات
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
-
-    // 1. طلب أذونات الإشعارات أولاً (الأهم)
+    
     if (defaultTargetPlatform == TargetPlatform.android) {
       final notificationStatus = await Permission.notification.request();
       print('📱 [Flutter] Notification permission status: $notificationStatus');
-
+      
       if (notificationStatus.isPermanentlyDenied) {
         print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
         await openAppSettings();
       }
-
-      // تأكد من منح الإذن
+      
       if (!notificationStatus.isGranted) {
         final retryStatus = await Permission.notification.request();
         print('📱 [Flutter] Notification permission after retry: $retryStatus');
       }
     }
-
-    // 2. طلب أذونات الموقع
+    
     await [
       Permission.location,
       Permission.camera,
       Permission.ignoreBatteryOptimizations,
     ].request();
 
-    // 3. طلب إذن الموقع في الخلفية
     if (await Permission.location.isGranted) {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
     }
-
+    
     print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
   }
 
-  // ✅ التحقق من التوكن وجلبه فوراً
   try {
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null && token.isNotEmpty) {
@@ -465,7 +450,6 @@ class _DriverHomeState extends State<DriverHome> {
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
   
-  // ✅ Overlay entry for persistent modal
   OverlayEntry? _overlayEntry;
 
   // ✅ دالة لعرض رسالة على الشاشة
@@ -493,7 +477,6 @@ class _DriverHomeState extends State<DriverHome> {
   void initState() {
     super.initState();
 
-    // ✅ عرض رسالة بداية
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showDebugMessage('🚀 التطبيق جاهز، انتظر الإشعارات');
     });
@@ -513,10 +496,6 @@ class _DriverHomeState extends State<DriverHome> {
           print('📱 [Flutter] Parsed data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
           _handleNotificationClick(data);
-          
-          // ✅ مسح الإشعار المعلق بعد معالجته
-          await _nativeChannel.invokeMethod('clearPendingNotification');
-          _showDebugMessage('🗑️ تم مسح الإشعار المعلق');
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -528,7 +507,6 @@ class _DriverHomeState extends State<DriverHome> {
     _restoreDriver();
     _initConnectivity();
     
-    // ✅ التحقق من الإشعارات المعلقة بعد تحميل الصفحة
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingNotification();
     });
@@ -561,10 +539,6 @@ class _DriverHomeState extends State<DriverHome> {
           print('📱 [Flutter] Parsed pending data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
           _handleNotificationClick(data);
-          
-          // ✅ مسح الإشعار المعلق بعد معالجته
-          await _nativeChannel.invokeMethod('clearPendingNotification');
-          _showDebugMessage('🗑️ تم مسح الإشعار المعلق');
         } catch (e) {
           print('❌ Error parsing pending notification: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -582,7 +556,6 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
-    // ✅ طلب الأذونات مع إعادة محاولة
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -591,7 +564,6 @@ class _DriverHomeState extends State<DriverHome> {
     
     print('📱 [Flutter] FCM Permission status: ${settings.authorizationStatus}');
 
-    // ✅ إذا كان الإذن مرفوضاً، افتح الإعدادات
     if (settings.authorizationStatus == AuthorizationStatus.denied) {
       print('⚠️ [Flutter] Notification permission denied, opening settings...');
       if (defaultTargetPlatform == TargetPlatform.android) {
@@ -605,7 +577,6 @@ class _DriverHomeState extends State<DriverHome> {
       sound: false,
     );
     
-    // ✅ الحصول على التوكن وحفظه
     try {
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
@@ -617,7 +588,6 @@ class _DriverHomeState extends State<DriverHome> {
       print('❌ [Flutter] Error getting token: $e');
     }
     
-    // ✅ استمع لتحديث التوكن
     messaging.onTokenRefresh.listen((newToken) async {
       print('🔄 [Flutter] FCM Token refreshed: $newToken');
       
@@ -662,66 +632,66 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
-  void _handleNotificationClick(Map<String, dynamic> data) {
+  // ✅ الدالة الأساسية لمعالجة الضغط على الإشعار
+  Future<void> _handleNotificationClick(Map<String, dynamic> data) async {
     print('📱 [Flutter] ========== HANDLE NOTIFICATION CLICK ==========');
     print('📱 [Flutter] Data: $data');
     
-    // ✅ عرض رسالة على الشاشة
-    _showDebugMessage('📱 تم فتح الإشعار: ${data.toString().substring(0, 100)}...');
+    _showDebugMessage('📱 تم فتح الإشعار');
     
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
+    final bool isRideRequest = (notifType == _rideRequestType);
 
     stopGlobalAlertSound();
     _overlayEntry?.remove();
     _overlayEntry = null;
 
+    // ✅ إشعارات السفر العادية
     if (isTravelNotif) {
-      print('📱 [Flutter] Travel notification - opening travel platform');
       _showDebugMessage('📱 فتح منصة السفر');
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null) {
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
+        await web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
       } else {
         setState(() => _pendingUrl = travelUrl);
+        _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
       }
       return;
     }
 
     // ✅ استخراج ride_id من البيانات
-    dynamic rideId = data['ride_id'] ?? data['rideId'];
-
-    if (rideId == null && data['payload'] != null) {
-      try {
-        final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
-        rideId = payloadData['ride_id'] ?? payloadData['rideId'];
-        print('📱 [Flutter] Extracted rideId from payload: $rideId');
-        _showDebugMessage('📱 استخراج rideId من payload: $rideId');
-      } catch (e) {
-        print('❌ Error extracting rideId from payload: $e');
-        _showDebugMessage('❌ خطأ في استخراج rideId: $e', isError: true);
-      }
-    }
-
-    if (rideId != null) {
-      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
-      print('📱 [Flutter] ✅ Opening URL: $url');
-      _showDebugMessage('✅ فتح الرحلة ID: $rideId');
-      
-      if (web != null) {
-        print('📱 [Flutter] WebView available - loading URL');
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
-        _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
-      } else {
-        print('📱 [Flutter] WebView not available - setting pending URL');
-        setState(() => _pendingUrl = url);
-        _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
-      }
-    } else {
-      print('⚠️ [Flutter] No rideId found in notification data');
-      print('📱 [Flutter] Full data: $data');
+    String? rideId = _extractRideId(data);
+    
+    if (rideId == null || rideId.isEmpty) {
+      print('❌ [Flutter] No rideId found in notification data');
       _showDebugMessage('⚠️ لا يوجد rideId في بيانات الإشعار!', isError: true);
       _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 200)}', isError: true);
+      return;
+    }
+
+    // ✅ بناء الرابط
+    final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=$rideId";
+    print('📱 [Flutter] ✅ Opening URL: $url');
+    _showDebugMessage('✅ فتح الرحلة ID: $rideId');
+    
+    // ✅ تحميل الرابط في WebView
+    if (web != null) {
+      print('📱 [Flutter] WebView available - loading URL');
+      try {
+        await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
+      } catch (e) {
+        print('❌ [Flutter] Error loading URL: $e');
+        _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
+        // ✅ محاولة بديلة
+        setState(() => _pendingUrl = url);
+        _showDebugMessage('⏳ حفظ الرابط للمحاولة لاحقاً');
+      }
+    } else {
+      print('📱 [Flutter] WebView not available - setting pending URL');
+      setState(() => _pendingUrl = url);
+      _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
     
     print('📱 [Flutter] ===============================================');
@@ -753,13 +723,8 @@ class _DriverHomeState extends State<DriverHome> {
       stopGlobalAlertSound();
       _playAlertSound();
       
-      // ✅ عرض الإشعار عبر Native
       await _showLocalNotification(data);
-
-      // ✅ ثم عرض المودال
       _showRideRequestModal(data);
-
-      // ✅ إرسال إلى PWA
       await _sendToPWA(data);
       
       return;
@@ -773,8 +738,11 @@ class _DriverHomeState extends State<DriverHome> {
     driverId = prefs.getString('driver_id');
     final lastUrl = prefs.getString('last_url');
     if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
-      if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
-      else setState(() => _pendingUrl = lastUrl);
+      if (web != null) {
+        await web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
+      } else {
+        setState(() => _pendingUrl = lastUrl);
+      }
     }
     if (driverId != null) { 
       _listenForRides(); 
@@ -837,11 +805,9 @@ class _DriverHomeState extends State<DriverHome> {
       )..subscribe();
   }
 
-  // ✅ تشغيل الصوت لمدة 30 ثانية فقط
   void _playAlertSound() {
     stopGlobalAlertSound();
     _globalIsAlertPlaying = true;
-
     _vibratePhone();
 
     try {
@@ -871,7 +837,6 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (_) {}
     }
 
-    // ✅ إيقاف تلقائي بعد 30 ثانية
     Future.delayed(const Duration(seconds: _alertDurationSeconds), () {
       print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
       stopGlobalAlertSound();
@@ -912,19 +877,15 @@ class _DriverHomeState extends State<DriverHome> {
     _cancelAllNotifications();
   }
 
-  // ✅ عرض الإشعار عبر Native Android (MethodChannel)
   Future<void> _showLocalNotification(Map<String, dynamic> data) async {
     try {
-      // ✅ تحقق من إذن الإشعارات قبل العرض
       if (defaultTargetPlatform == TargetPlatform.android) {
         final status = await Permission.notification.status;
         if (!status.isGranted) {
-          print('⚠️ [Flutter] Notification permission not granted, requesting...');
-          _showDebugMessage('⚠️ طلب إذن الإشعارات...');
+          print('⚠️ [Flutter] Notification permission not granted');
           final newStatus = await Permission.notification.request();
           if (!newStatus.isGranted) {
-            print('❌ [Flutter] Notification permission denied, cannot show notification');
-            _showDebugMessage('❌ إذن الإشعارات مرفوض!', isError: true);
+            print('❌ [Flutter] Notification permission denied');
             return;
           }
         }
@@ -934,10 +895,9 @@ class _DriverHomeState extends State<DriverHome> {
       final String body = '${data['customer_name'] ?? 'عميل'} - ${data['amount'] ?? 0} SDG';
       final String payload = jsonEncode(data);
 
-      print('📱 [Flutter] Showing notification via Native: $title');
+      print('📱 [Flutter] Showing notification via Native');
       _showDebugMessage('📱 عرض إشعار عبر Native');
 
-      // ✅ استخدام Native method
       await _nativeChannel.invokeMethod('showEmergencyNotification', {
         'title': title,
         'body': body,
@@ -949,25 +909,19 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (e) {
       print('❌ Error showing notification via Native: $e');
       _showDebugMessage('❌ خطأ في عرض الإشعار: $e', isError: true);
-      // ✅ Fallback إلى flutter_local_notifications
       try {
         await _showLocalNotificationFallback(data);
       } catch (fallbackError) {
         print('❌ Fallback notification also failed: $fallbackError');
-        _showDebugMessage('❌ فشل Fallback: $fallbackError', isError: true);
       }
     }
   }
 
-  // ✅ Fallback method باستخدام flutter_local_notifications
   Future<void> _showLocalNotificationFallback(Map<String, dynamic> data) async {
     try {
       String name = data['customer_name'] ?? 'عميل';
       String amount = data['amount']?.toString() ?? '0';
       String? rideId = _extractRideId(data);
-
-      print('📱 [Flutter] Showing fallback notification for ride: $rideId');
-      _showDebugMessage('📱 عرض Fallback للرحلة: $rideId');
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
@@ -999,7 +953,6 @@ class _DriverHomeState extends State<DriverHome> {
       _showDebugMessage('✅ تم عرض Fallback بنجاح');
     } catch (e) {
       print('❌ Fallback notification error: $e');
-      _showDebugMessage('❌ خطأ في Fallback: $e', isError: true);
       rethrow;
     }
   }
@@ -1028,7 +981,6 @@ class _DriverHomeState extends State<DriverHome> {
       _showDebugMessage('✅ تم عرض إشعار السفر');
     } catch (e) {
       print('❌ Error showing travel notification: $e');
-      _showDebugMessage('❌ خطأ في عرض إشعار السفر: $e', isError: true);
     }
   }
 
@@ -1132,7 +1084,7 @@ class _DriverHomeState extends State<DriverHome> {
     
     final rideId = _extractRideId(data);
     if (rideId != null && web != null) {
-      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=$rideId";
       await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
       _showDebugMessage('🌐 فتح صفحة القبول');
     }
@@ -1203,11 +1155,18 @@ class _DriverHomeState extends State<DriverHome> {
             onWebViewCreated: (controller) {
               web = controller;
               
-              print('📱 [Flutter] ========================================');
-              print('📱 [Flutter] 🚀 WebView Created - Registering Handlers');
-              print('📱 [Flutter] ========================================');
+              print('📱 [Flutter] 🚀 WebView Created');
               
-              // ✅ Handler 1: Ping
+              // ✅ إذا كان هناك رابط معلق، حمله فوراً
+              if (_pendingUrl != null) {
+                final url = _pendingUrl!;
+                _pendingUrl = null;
+                print('📱 [Flutter] Loading pending URL: $url');
+                _showDebugMessage('🌐 تحميل الرابط المعلق: $url');
+                controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+              }
+              
+              // ✅ تسجيل الـ Handlers
               controller.addJavaScriptHandler(
                 handlerName: 'ping',
                 callback: (args) {
@@ -1216,12 +1175,10 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 2: Get FCM Token
               controller.addJavaScriptHandler(
                 handlerName: 'getFCMToken',
                 callback: (args) async {
                   print('📱 [Flutter] 📞 getFCMToken called from PWA');
-                  
                   try {
                     NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
                       alert: true,
@@ -1229,10 +1186,7 @@ class _DriverHomeState extends State<DriverHome> {
                       sound: true,
                     );
                     
-                    print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
-                    
                     if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-                      print('📱 [Flutter] ⚠️ Not authorized');
                       return null;
                     }
                     
@@ -1250,13 +1204,9 @@ class _DriverHomeState extends State<DriverHome> {
                     if (token != null && token.isNotEmpty) {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setString('fcm_token', token);
-                      print('📱 [Flutter] ✅ Token: ${token.substring(0, 20)}...');
                       return token;
                     }
-                    
-                    print('📱 [Flutter] ❌ No token available');
                     return null;
-                    
                   } catch (e) {
                     print('📱 [Flutter] ❌ Error: $e');
                     return null;
@@ -1264,7 +1214,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 3: Get stored token
               controller.addJavaScriptHandler(
                 handlerName: 'getStoredFCMToken',
                 callback: (args) async {
@@ -1272,16 +1221,13 @@ class _DriverHomeState extends State<DriverHome> {
                   try {
                     final prefs = await SharedPreferences.getInstance();
                     final token = prefs.getString('fcm_token');
-                    print('📱 [Flutter] 🔑 Stored token: ${token?.substring(0, 20)}...');
                     return token;
                   } catch (e) {
-                    print('📱 [Flutter] ❌ Error: $e');
                     return null;
                   }
                 },
               );
               
-              // ✅ Handler 4: Check FCM status
               controller.addJavaScriptHandler(
                 handlerName: 'checkFCMStatus',
                 callback: (args) async {
@@ -1301,7 +1247,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 5: Token sync complete
               controller.addJavaScriptHandler(
                 handlerName: 'tokenSyncComplete',
                 callback: (args) {
@@ -1310,7 +1255,6 @@ class _DriverHomeState extends State<DriverHome> {
                 },
               );
               
-              // ✅ Handler 6: Stop alerts
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlertsFromPWA', 
                 callback: (args) { 
@@ -1320,7 +1264,6 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 7: Stop alerts (alternative)
               controller.addJavaScriptHandler(
                 handlerName: 'stopAlerts', 
                 callback: (args) { 
@@ -1330,12 +1273,10 @@ class _DriverHomeState extends State<DriverHome> {
                 }
               );
               
-              // ✅ Handler 8: Driver login
               controller.addJavaScriptHandler(
                 handlerName: 'driverLogin', 
                 callback: (args) { 
                   print('📱 [Flutter] 🔐 Driver login received from PWA');
-                  print('📱 [Flutter] 📋 Data: $args');
                   
                   if (args.isNotEmpty && args[0] is Map) {
                     final data = args[0] as Map;
@@ -1343,31 +1284,21 @@ class _DriverHomeState extends State<DriverHome> {
                     if (id != null && id.isNotEmpty) {
                       print('📱 [Flutter] ✅ Driver ID: $id');
                       _saveDriver(id);
-                    } else {
-                      print('📱 [Flutter] ⚠️ No driver ID found in data');
                     }
                   }
                   return 'OK';
                 }
               );
               
-              // ✅ Handler 9: Get driver ID
               controller.addJavaScriptHandler(
                 handlerName: 'getDriverId',
                 callback: (args) {
                   print('📱 [Flutter] 📞 getDriverId called from PWA');
-                  print('📱 [Flutter] 📋 Current driverId: $driverId');
                   return driverId ?? '';
                 },
               );
               
-              print('📱 [Flutter] ========================================');
               print('📱 [Flutter] ✅ All Handlers Registered Successfully');
-              print('📱 [Flutter] ========================================');
-
-              if (_pendingUrl != null) {
-                controller.loadUrl(urlRequest: URLRequest(url: WebUri(_pendingUrl!)));
-              }
             },
             onGeolocationPermissionsShowPrompt: (controller, origin) async => 
                 GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true),
