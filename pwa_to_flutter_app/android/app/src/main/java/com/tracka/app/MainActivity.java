@@ -5,6 +5,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 import androidx.core.app.NotificationCompat;
@@ -38,15 +39,11 @@ public class MainActivity extends FlutterActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         System.out.println("📱 [MainActivity] onNewIntent called");
-        System.out.println("📱 [MainActivity] Intent Action: " + intent.getAction());
         handleIntent(intent);
     }
 
     private void handleIntent(Intent intent) {
-        if (intent == null) {
-            System.out.println("📱 [MainActivity] handleIntent: Intent is null");
-            return;
-        }
+        if (intent == null) return;
         
         String action = intent.getAction();
         String payload = intent.getStringExtra("payload");
@@ -60,22 +57,17 @@ public class MainActivity extends FlutterActivity {
         System.out.println("📱 [MainActivity] Payload: " + payload);
         System.out.println("📱 [MainActivity] ===================================");
 
-        // ✅ تخزين الـ payload إذا كان RIDE_REQUEST
+        // ✅ تخزين البيانات للـ Flutter
         if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
             pendingPayload = payload;
-            System.out.println("📱 [MainActivity] ✅ Pending payload stored: " + payload);
+            System.out.println("📱 [MainActivity] ✅ Pending payload stored");
             
-            // ✅ إذا كان FlutterEngine جاهزاً، أرسل فوراً
-            if (flutterEngineInstance != null) {
-                System.out.println("📱 [MainActivity] ✅ Sending to Flutter immediately");
-                new MethodChannel(flutterEngineInstance.getDartExecutor().getBinaryMessenger(), CHANNEL)
-                    .invokeMethod("onNotificationOpened", payload != null ? payload : "");
-                pendingPayload = null; // نمسحها بعد الإرسال الفوري
-            } else {
-                System.out.println("📱 [MainActivity] ⚠️ FlutterEngine not ready, pending");
+            // ✅ حفظ في SharedPreferences أيضاً كضمان إضافي
+            if (payload != null && !payload.isEmpty()) {
+                SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                prefs.edit().putString("pending_payload", payload).apply();
+                System.out.println("📱 [MainActivity] ✅ Saved to SharedPreferences");
             }
-        } else {
-            System.out.println("📱 [MainActivity] ⚠️ Not a RIDE_REQUEST intent");
         }
     }
 
@@ -86,7 +78,6 @@ public class MainActivity extends FlutterActivity {
         
         this.flutterEngineInstance = flutterEngine;
 
-        // ✅ إعداد MethodChannel
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler((call, result) -> {
                 System.out.println("📱 [MainActivity] MethodChannel call: " + call.method);
@@ -95,7 +86,6 @@ public class MainActivity extends FlutterActivity {
                     String title = call.argument("title");
                     String body = call.argument("body");
                     String payload = call.argument("payload");
-                    System.out.println("📱 [MainActivity] showEmergencyNotification - Title: " + title);
                     showEmergencyNotification(title, body, payload);
                     result.success(true);
                     
@@ -105,18 +95,30 @@ public class MainActivity extends FlutterActivity {
                     
                 } else if (call.method.equals("getPendingNotification")) {
                     System.out.println("📱 [MainActivity] getPendingNotification called");
-                    System.out.println("📱 [MainActivity] Pending payload: " + pendingPayload);
-                    if (pendingPayload != null) {
-                        String temp = pendingPayload;
-                        pendingPayload = null;
-                        result.success(temp);
-                    } else {
-                        result.success(null);
+                    
+                    // ✅ أولاً من الذاكرة
+                    String payload = pendingPayload;
+                    
+                    // ✅ ثانياً من SharedPreferences
+                    if (payload == null || payload.isEmpty()) {
+                        SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                        payload = prefs.getString("pending_payload", null);
+                        if (payload != null && !payload.isEmpty()) {
+                            prefs.edit().remove("pending_payload").apply();
+                        }
                     }
+                    
+                    // ✅ مسح من الذاكرة بعد القراءة
+                    pendingPayload = null;
+                    
+                    System.out.println("📱 [MainActivity] Returning payload: " + payload);
+                    result.success(payload);
                     
                 } else if (call.method.equals("clearPendingNotification")) {
                     System.out.println("📱 [MainActivity] clearPendingNotification called");
                     pendingPayload = null;
+                    SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                    prefs.edit().remove("pending_payload").apply();
                     result.success(true);
                     
                 } else {
@@ -124,13 +126,8 @@ public class MainActivity extends FlutterActivity {
                 }
             });
         
-        // ✅ إذا كان هناك بيانات معلقة عند تهيئة FlutterEngine
-        if (pendingPayload != null) {
-            System.out.println("📱 [MainActivity] ✅ Sending pending to Flutter on configure");
-            new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
-                .invokeMethod("onNotificationOpened", pendingPayload);
-            pendingPayload = null;
-        }
+        // ✅ لا نرسل البيانات هنا مباشرة، نترك Flutter يطلبها عبر getPendingNotification
+        // هذا يمنع فقدان البيانات في حالة Cold Start
     }
 
     private void createNotificationChannels() {
@@ -192,11 +189,24 @@ public class MainActivity extends FlutterActivity {
                 System.err.println("⚠️ Could not parse ride_id from payload");
             }
             
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            intent.setFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            );
+
+            int requestCode = (int) System.currentTimeMillis();
+            try {
+                org.json.JSONObject json = new org.json.JSONObject(payload);
+                String rideId = json.optString("ride_id");
+                if (rideId != null && !rideId.isEmpty()) {
+                    requestCode = rideId.hashCode();
+                }
+            } catch (Exception e) {}
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
                 context,
-                (int) System.currentTimeMillis(),
+                requestCode,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
