@@ -315,22 +315,22 @@ Future<void> main() async {
 
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
-    
+
     if (defaultTargetPlatform == TargetPlatform.android) {
       final notificationStatus = await Permission.notification.request();
       print('📱 [Flutter] Notification permission status: $notificationStatus');
-      
+
       if (notificationStatus.isPermanentlyDenied) {
         print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
         await openAppSettings();
       }
-      
+
       if (!notificationStatus.isGranted) {
         final retryStatus = await Permission.notification.request();
         print('📱 [Flutter] Notification permission after retry: $retryStatus');
       }
     }
-    
+
     await [
       Permission.location,
       Permission.camera,
@@ -341,7 +341,7 @@ Future<void> main() async {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
     }
-    
+
     print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
@@ -431,7 +431,7 @@ class _DriverHomeState extends State<DriverHome> {
   void _showDebugMessage(String message, {bool isError = false}) {
     final context = navigatorKey.currentContext;
     if (context == null) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -459,12 +459,12 @@ class _DriverHomeState extends State<DriverHome> {
     // ✅ استماع لفتح الإشعار من Native
     _nativeChannel.setMethodCallHandler((call) async {
       print('📱 [Flutter] MethodChannel call received: ${call.method}');
-      
+
       if (call.method == 'onNotificationOpened') {
         final payload = call.arguments as String;
         print('📱 [Flutter] Notification opened from Native: $payload');
         _showDebugMessage('📱 تم فتح الإشعار من Native');
-        
+
         try {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed data: $data');
@@ -480,7 +480,7 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
-    
+
     // ✅ فقط كاحتياطي لـ Cold Start
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingNotification();
@@ -503,12 +503,12 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _checkPendingNotification() async {
     try {
       print('📱 [Flutter] Checking for pending notification (cold start)...');
-      
+
       final String? payload = await _nativeChannel.invokeMethod('getPendingNotification');
       if (payload != null && payload.isNotEmpty) {
         print('📱 [Flutter] ✅ Pending notification found: $payload');
         _showDebugMessage('✅ تم العثور على إشعار معلق');
-        
+
         try {
           final data = jsonDecode(payload);
           await _handleNotificationClick(data);
@@ -606,9 +606,9 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _handleNotificationClick(Map<String, dynamic> data) async {
     print('📱 [Flutter] ========== HANDLE NOTIFICATION CLICK ==========');
     print('📱 [Flutter] Data: $data');
-    
+
     _showDebugMessage('📱 تم فتح الإشعار');
-    
+
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
@@ -631,7 +631,7 @@ class _DriverHomeState extends State<DriverHome> {
 
     // ✅ استخراج ride_id من البيانات
     String? rideId = _extractRideId(data);
-    
+
     if (rideId == null || rideId.isEmpty) {
       print('❌ [Flutter] No rideId found in notification data');
       _showDebugMessage('⚠️ لا يوجد rideId في بيانات الإشعار!', isError: true);
@@ -642,7 +642,7 @@ class _DriverHomeState extends State<DriverHome> {
     final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=$rideId";
     print('📱 [Flutter] ✅ Opening URL: $url');
     _showDebugMessage('✅ فتح الرحلة ID: $rideId');
-    
+
     // ✅ تحميل الرابط في WebView
     if (web != null && _isPageLoaded) {
       print('📱 [Flutter] WebView ready - loading URL');
@@ -660,7 +660,7 @@ class _DriverHomeState extends State<DriverHome> {
       setState(() => _pendingUrl = url);
       _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
-    
+
     print('📱 [Flutter] ===============================================');
   }
 
@@ -1102,7 +1102,7 @@ class _DriverHomeState extends State<DriverHome> {
   // ✅ دالة مزامنة السائق مع إلغاء المؤقت القديم
   void _startDriverSync() {
     _driverSyncTimer?.cancel();
-    
+
     _driverSyncTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (web == null) return;
       try {
@@ -1139,7 +1139,7 @@ class _DriverHomeState extends State<DriverHome> {
               web = controller;
               
               print('📱 [Flutter] 🚀 WebView Created');
-              
+
               // ✅ إذا كان هناك رابط معلق، حمله فوراً
               if (_pendingUrl != null) {
                 final url = _pendingUrl!;
