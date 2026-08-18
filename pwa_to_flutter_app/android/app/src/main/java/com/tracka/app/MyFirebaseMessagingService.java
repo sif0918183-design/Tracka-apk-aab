@@ -19,10 +19,36 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         try {
             String type = message.getData().get("type");
             
-            // ✅ إذا كان RIDE_REQUEST، تجاهل (يتعامل معه Firebase Notification)
-            // ولكننا نحتاج فقط للصوت والاهتزاز، يتم تشغيلهما من Flutter Background Handler
+            // ✅ RIDE_REQUEST: نتعامل معه فقط لتخزين البيانات، ولا ننشئ إشعاراً
+            // لأن Firebase سينشئ الإشعار من notification
             if ("RIDE_REQUEST".equals(type)) {
-                System.out.println("📱 [FCM Service] RIDE_REQUEST - Ignored, handled by Firebase notification");
+                String rideId = message.getData().get("ride_id");
+                String customerName = message.getData().get("customer_name");
+                String amount = message.getData().get("amount");
+                
+                System.out.println("📱 [FCM Service] RIDE_REQUEST received (data only)");
+                System.out.println("📱 [FCM Service] Ride ID: " + rideId);
+                
+                // ✅ حفظ البيانات في SharedPreferences كاحتياطي
+                if (rideId != null && !rideId.isEmpty()) {
+                    JSONObject payload = new JSONObject();
+                    payload.put("ride_id", rideId);
+                    payload.put("type", "RIDE_REQUEST");
+                    payload.put("customer_name", customerName != null ? customerName : "");
+                    payload.put("amount", amount != null ? amount : "0");
+                    
+                    String payloadString = payload.toString();
+                    
+                    SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                    prefs.edit()
+                        .putString("pending_payload", payloadString)
+                        .putString("pending_ride_id", rideId)
+                        .apply();
+                    
+                    System.out.println("✅ [FCM Service] Data saved to SharedPreferences");
+                }
+                
+                // ✅ لا ننشئ إشعاراً هنا، Firebase سيتعامل معه
                 return;
             }
             
