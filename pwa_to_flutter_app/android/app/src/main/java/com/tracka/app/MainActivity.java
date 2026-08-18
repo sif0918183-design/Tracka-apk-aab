@@ -12,13 +12,15 @@ import androidx.core.app.NotificationCompat;
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
+import org.json.JSONObject;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
     public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
     
-    private FlutterEngine flutterEngineInstance;
+    private MethodChannel notificationChannel;
     private String pendingPayload = null;
+    private String pendingRideId = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -27,7 +29,6 @@ public class MainActivity extends FlutterActivity {
         
         System.out.println("📱 [MainActivity] onCreate called");
         
-        // ✅ معالجة الـ Intent
         Intent intent = getIntent();
         if (intent != null) {
             System.out.println("📱 [MainActivity] Intent Action: " + intent.getAction());
@@ -38,13 +39,22 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // ✅ مهم جداً في singleTop mode
+        setIntent(intent);
+        
         System.out.println("📱 [MainActivity] onNewIntent called");
+        if (intent != null) {
+            System.out.println("📱 [MainActivity] Intent Action: " + intent.getAction());
+        }
         handleIntent(intent);
     }
 
     private void handleIntent(Intent intent) {
-        if (intent == null) return;
-        
+        if (intent == null) {
+            System.out.println("📱 [MainActivity] handleIntent: Intent is null");
+            return;
+        }
+
         String action = intent.getAction();
         String payload = intent.getStringExtra("payload");
         String rideId = intent.getStringExtra("ride_id");
@@ -57,77 +67,145 @@ public class MainActivity extends FlutterActivity {
         System.out.println("📱 [MainActivity] Payload: " + payload);
         System.out.println("📱 [MainActivity] ===================================");
 
-        // ✅ تخزين البيانات للـ Flutter
         if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
-            pendingPayload = payload;
-            System.out.println("📱 [MainActivity] ✅ Pending payload stored");
             
-            // ✅ حفظ في SharedPreferences أيضاً كضمان إضافي
-            if (payload != null && !payload.isEmpty()) {
-                SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-                prefs.edit().putString("pending_payload", payload).apply();
-                System.out.println("📱 [MainActivity] ✅ Saved to SharedPreferences");
+            if (payload == null || payload.isEmpty()) {
+                System.out.println("❌ [MainActivity] Empty notification payload");
+                return;
             }
+
+            // ✅ حفظ احتياطي لـ Cold Start في SharedPreferences
+            pendingPayload = payload;
+            pendingRideId = rideId;
+
+            SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+            prefs.edit()
+                .putString("pending_payload", payload)
+                .putString("pending_ride_id", rideId)
+                .apply();
+
+            System.out.println("✅ [MainActivity] Payload saved to memory and SharedPreferences");
+
+            // ✅ إرسال مباشر إلى Flutter إذا كان MethodChannel جاهزاً
+            deliverPendingNotificationToFlutter();
+        } else {
+            System.out.println("📱 [MainActivity] ⚠️ Not RIDE_REQUEST");
         }
+    }
+
+    // ✅ دالة إرسال الإشعار مباشرة إلى Flutter
+    private void deliverPendingNotificationToFlutter() {
+        if (pendingPayload == null || pendingPayload.isEmpty()) {
+            System.out.println("⏳ [MainActivity] No pending payload to deliver");
+            return;
+        }
+
+        if (notificationChannel == null) {
+            System.out.println("⏳ [MainActivity] MethodChannel not ready yet, will deliver later");
+            return;
+        }
+
+        final String payloadToSend = pendingPayload;
+
+        System.out.println("📤 [MainActivity] Sending notification directly to Flutter: " + payloadToSend);
+
+        runOnUiThread(() -> {
+            try {
+                notificationChannel.invokeMethod("onNotificationOpened", payloadToSend);
+                
+                System.out.println("✅ [MainActivity] Notification delivered to Flutter");
+
+                // ✅ مسح البيانات بعد الإرسال
+                pendingPayload = null;
+                pendingRideId = null;
+
+                SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                prefs.edit()
+                    .remove("pending_payload")
+                    .remove("pending_ride_id")
+                    .apply();
+
+            } catch (Exception e) {
+                System.err.println("❌ [MainActivity] Failed to deliver notification: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
     }
 
     @Override
     public void configureFlutterEngine(FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
         System.out.println("📱 [MainActivity] configureFlutterEngine called");
-        
-        this.flutterEngineInstance = flutterEngine;
 
-        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
-            .setMethodCallHandler((call, result) -> {
-                System.out.println("📱 [MainActivity] MethodChannel call: " + call.method);
-                
-                if (call.method.equals("showEmergencyNotification")) {
-                    String title = call.argument("title");
-                    String body = call.argument("body");
-                    String payload = call.argument("payload");
-                    showEmergencyNotification(title, body, payload);
-                    result.success(true);
-                    
-                } else if (call.method.equals("cancelAllNotifications")) {
-                    cancelAllNotifications();
-                    result.success(true);
-                    
-                } else if (call.method.equals("getPendingNotification")) {
-                    System.out.println("📱 [MainActivity] getPendingNotification called");
-                    
-                    // ✅ أولاً من الذاكرة
-                    String payload = pendingPayload;
-                    
-                    // ✅ ثانياً من SharedPreferences
-                    if (payload == null || payload.isEmpty()) {
-                        SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-                        payload = prefs.getString("pending_payload", null);
-                        if (payload != null && !payload.isEmpty()) {
-                            prefs.edit().remove("pending_payload").apply();
-                        }
-                    }
-                    
-                    // ✅ مسح من الذاكرة بعد القراءة
-                    pendingPayload = null;
-                    
-                    System.out.println("📱 [MainActivity] Returning payload: " + payload);
-                    result.success(payload);
-                    
-                } else if (call.method.equals("clearPendingNotification")) {
-                    System.out.println("📱 [MainActivity] clearPendingNotification called");
-                    pendingPayload = null;
+        // ✅ إنشاء MethodChannel وتخزينه
+        notificationChannel = new MethodChannel(
+            flutterEngine.getDartExecutor().getBinaryMessenger(),
+            CHANNEL
+        );
+
+        notificationChannel.setMethodCallHandler((call, result) -> {
+            System.out.println("📱 [MainActivity] MethodChannel call: " + call.method);
+
+            if (call.method.equals("showEmergencyNotification")) {
+                String title = call.argument("title");
+                String body = call.argument("body");
+                String payload = call.argument("payload");
+                showEmergencyNotification(title, body, payload);
+                result.success(true);
+
+            } else if (call.method.equals("cancelAllNotifications")) {
+                cancelAllNotifications();
+                result.success(true);
+
+            } else if (call.method.equals("getPendingNotification")) {
+                System.out.println("📱 [MainActivity] getPendingNotification called");
+
+                // ✅ أولاً من الذاكرة
+                String payload = pendingPayload;
+
+                // ✅ ثانياً من SharedPreferences
+                if (payload == null || payload.isEmpty()) {
                     SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-                    prefs.edit().remove("pending_payload").apply();
-                    result.success(true);
-                    
-                } else {
-                    result.notImplemented();
+                    payload = prefs.getString("pending_payload", null);
+                    if (payload != null && !payload.isEmpty()) {
+                        System.out.println("📱 [MainActivity] Found payload in SharedPreferences");
+                    }
                 }
-            });
-        
-        // ✅ لا نرسل البيانات هنا مباشرة، نترك Flutter يطلبها عبر getPendingNotification
-        // هذا يمنع فقدان البيانات في حالة Cold Start
+
+                // ✅ نمسح البيانات بعد القراءة
+                pendingPayload = null;
+                pendingRideId = null;
+                SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                prefs.edit()
+                    .remove("pending_payload")
+                    .remove("pending_ride_id")
+                    .apply();
+
+                System.out.println("📱 [MainActivity] Returning payload: " + payload);
+                result.success(payload);
+
+            } else if (call.method.equals("clearPendingNotification")) {
+                System.out.println("📱 [MainActivity] clearPendingNotification called");
+                pendingPayload = null;
+                pendingRideId = null;
+                SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+                prefs.edit()
+                    .remove("pending_payload")
+                    .remove("pending_ride_id")
+                    .apply();
+                result.success(true);
+
+            } else {
+                result.notImplemented();
+            }
+        });
+
+        // ✅ مهم جداً: إذا كان التطبيق بدأ بسبب الضغط على الإشعار
+        // وكان هناك pendingPayload قبل إنشاء MethodChannel
+        if (pendingPayload != null && !pendingPayload.isEmpty()) {
+            System.out.println("📱 [MainActivity] ✅ Delivering pending notification after FlutterEngine ready");
+            deliverPendingNotificationToFlutter();
+        }
     }
 
     private void createNotificationChannels() {
@@ -178,9 +256,8 @@ public class MainActivity extends FlutterActivity {
             intent.putExtra("payload", payload);
             intent.putExtra("type", "RIDE_REQUEST");
             
-            // ✅ استخراج ride_id من payload
             try {
-                org.json.JSONObject json = new org.json.JSONObject(payload);
+                JSONObject json = new JSONObject(payload);
                 String rideId = json.optString("ride_id");
                 if (rideId != null && !rideId.isEmpty()) {
                     intent.putExtra("ride_id", rideId);
@@ -190,14 +267,14 @@ public class MainActivity extends FlutterActivity {
             }
             
             intent.setFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK |
                 Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_NEW_TASK
             );
 
             int requestCode = (int) System.currentTimeMillis();
             try {
-                org.json.JSONObject json = new org.json.JSONObject(payload);
+                JSONObject json = new JSONObject(payload);
                 String rideId = json.optString("ride_id");
                 if (rideId != null && !rideId.isEmpty()) {
                     requestCode = rideId.hashCode();
