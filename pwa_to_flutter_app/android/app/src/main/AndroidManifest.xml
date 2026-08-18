@@ -92,7 +92,14 @@
 
         </activity>
 
-        <!-- ✅ تم إزالة MyFirebaseMessagingService - يتم استخدام Firebase مباشرة -->
+        <!-- ✅ خدمة Firebase Messaging -->
+        <service
+            android:name=".MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- ✅ خدمات الإشعارات المحلية -->
         <service
