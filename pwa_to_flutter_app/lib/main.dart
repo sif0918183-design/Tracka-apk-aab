@@ -240,6 +240,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   print('📱 [Background] Received message type: $notifType');
 
+  // ✅ RIDE_REQUEST: فقط صوت واهتزاز، لا ننشئ إشعار Flutter
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) {
@@ -247,12 +248,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       return;
     }
     _playAlertSoundInBackground();
+    print('📱 [Background] RIDE_REQUEST - Sound played, notification handled by native');
+    return;
   }
 
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
-  String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
-
+  // ✅ إشعارات السفر العادية
   if (isTravelNotif) {
+    String title = message.notification?.title ?? 'تراكا';
+    String body = message.notification?.body ?? 'لديك إشعار جديد';
     await _globalNotifications.show(
       DateTime.now().millisecond,
       title,
@@ -272,38 +275,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
     print('📱 [Background] Travel notification shown');
-  } else if (isRideRequest) {
-    try {
-      await _globalNotifications.cancelAll();
-    } catch (_) {}
-
-    String? rideId = _extractRideId(data);
-    await _globalNotifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond,
-      title,
-      body,
-      fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          _emergencyChannelId,
-          _emergencyChannelName,
-          importance: fln.Importance.max,
-          priority: fln.Priority.max,
-          ongoing: true,
-          autoCancel: false,
-          playSound: true,
-          enableVibration: true,
-          additionalFlags: Int32List.fromList([4]),
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-          channelShowBadge: true,
-          visibility: fln.NotificationVisibility.public,
-          timeoutAfter: 30000,
-          styleInformation: const fln.BigTextStyleInformation(''),
-        ),
-      ),
-      payload: jsonEncode(data),
-    );
-    print('📱 [Background] Ride notification shown');
   }
 }
 
@@ -446,6 +417,7 @@ class _DriverHomeState extends State<DriverHome> {
   bool _isPageLoaded = false;
   String? driverId;
   String? _pendingUrl;
+  String? _pendingRideUrl; // ✅ رابط الرحلة المعلق
   RealtimeChannel? channel;
   Timer? statusSyncTimer;
   StreamSubscription<ConnectivityResult>? connectivitySubscription;
@@ -495,7 +467,7 @@ class _DriverHomeState extends State<DriverHome> {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          _handleNotificationClick(data);
+          await _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -538,7 +510,13 @@ class _DriverHomeState extends State<DriverHome> {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed pending data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          _handleNotificationClick(data);
+          
+          // ✅ معالجة الإشعار فوراً
+          await _handleNotificationClick(data);
+          
+          // ✅ مسح الإشعار المعلق بعد المعالجة
+          await _nativeChannel.invokeMethod('clearPendingNotification');
+          _showDebugMessage('🗑️ تم مسح الإشعار المعلق');
         } catch (e) {
           print('❌ Error parsing pending notification: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -641,7 +619,6 @@ class _DriverHomeState extends State<DriverHome> {
     
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
-    final bool isRideRequest = (notifType == _rideRequestType);
 
     stopGlobalAlertSound();
     _overlayEntry?.remove();
@@ -654,7 +631,7 @@ class _DriverHomeState extends State<DriverHome> {
       if (web != null) {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
       } else {
-        setState(() => _pendingUrl = travelUrl);
+        setState(() => _pendingRideUrl = travelUrl);
         _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
       }
       return;
@@ -675,22 +652,24 @@ class _DriverHomeState extends State<DriverHome> {
     print('📱 [Flutter] ✅ Opening URL: $url');
     _showDebugMessage('✅ فتح الرحلة ID: $rideId');
     
-    // ✅ تحميل الرابط في WebView
+    // ✅ تحميل الرابط في WebView فوراً
     if (web != null) {
-      print('📱 [Flutter] WebView available - loading URL');
+      print('📱 [Flutter] WebView available - loading URL immediately');
       try {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
         _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
+        // ✅ مسح الرابط المعلق بعد التحميل
+        _pendingRideUrl = null;
       } catch (e) {
         print('❌ [Flutter] Error loading URL: $e');
         _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
-        // ✅ محاولة بديلة
-        setState(() => _pendingUrl = url);
+        // ✅ حفظ الرابط للمحاولة لاحقاً
+        setState(() => _pendingRideUrl = url);
         _showDebugMessage('⏳ حفظ الرابط للمحاولة لاحقاً');
       }
     } else {
       print('📱 [Flutter] WebView not available - setting pending URL');
-      setState(() => _pendingUrl = url);
+      setState(() => _pendingRideUrl = url);
       _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
     
@@ -1157,12 +1136,20 @@ class _DriverHomeState extends State<DriverHome> {
               
               print('📱 [Flutter] 🚀 WebView Created');
               
-              // ✅ إذا كان هناك رابط معلق، حمله فوراً
+              // ✅ إذا كان هناك رابط رحلة معلق، حمله فوراً (أولوية قصوى)
+              if (_pendingRideUrl != null) {
+                final url = _pendingRideUrl!;
+                _pendingRideUrl = null;
+                print('📱 [Flutter] 🔥 Loading pending ride URL immediately: $url');
+                _showDebugMessage('🌐 تحميل الرابط المعلق: $url');
+                controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+              }
+              
+              // ✅ إذا كان هناك رابط عام معلق
               if (_pendingUrl != null) {
                 final url = _pendingUrl!;
                 _pendingUrl = null;
                 print('📱 [Flutter] Loading pending URL: $url');
-                _showDebugMessage('🌐 تحميل الرابط المعلق: $url');
                 controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
               }
               
@@ -1315,6 +1302,9 @@ class _DriverHomeState extends State<DriverHome> {
                   print('📱 [Flutter] 📍 accept-ride.html loaded - stopping alerts');
                   _showDebugMessage('📍 تم فتح صفحة القبول');
                   _stopAlerts();
+                  
+                  // ✅ مسح الرابط المعلق بعد التحميل
+                  _pendingRideUrl = null;
                 }
               }
               _startDriverSync();
