@@ -17,7 +17,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(message);
 
         try {
-            // ✅ استخراج البيانات من data فقط
             String type = message.getData().get("type");
             String rideId = message.getData().get("ride_id");
             String customerName = message.getData().get("customer_name");
@@ -31,7 +30,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             System.out.println("📱 [FCM Service] Amount: " + amount);
             System.out.println("📱 [FCM Service] ==============================");
 
-            // ✅ بناء payload كـ JSON كامل
+            // ✅ بناء payload
             JSONObject payload = new JSONObject();
             payload.put("ride_id", rideId != null ? rideId : "");
             payload.put("type", type != null ? type : "RIDE_REQUEST");
@@ -41,7 +40,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             
             String payloadString = payload.toString();
 
-            // ✅ حفظ البيانات في SharedPreferences للتأكد من وصولها
+            // ✅ حفظ في SharedPreferences
             SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
             prefs.edit()
                 .putString("pending_payload", payloadString)
@@ -50,15 +49,13 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 .apply();
             
             System.out.println("✅ [FCM Service] Data saved to SharedPreferences");
-            System.out.println("✅ [FCM Service] Payload: " + payloadString);
 
             // ✅ إذا كان RIDE_REQUEST، اعرض إشعار الطوارئ
             if ("RIDE_REQUEST".equals(type)) {
                 String title = "🚨 طلب رحلة جديد";
-                String body = customerName + " - " + amount + " SDG";
+                String body = (customerName != null ? customerName : "عميل") + " - " + (amount != null ? amount : "0") + " SDG";
                 showEmergencyNotification(title, body, payloadString, rideId);
             } else {
-                // إشعار عادي
                 String title = message.getData().get("title") != null ? 
                     message.getData().get("title") : "تراكا";
                 String body = message.getData().get("body") != null ? 
@@ -76,32 +73,20 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         try {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-            // ✅ Intent مع جميع البيانات
             Intent intent = new Intent(this, MainActivity.class);
             intent.setAction("OPEN_RIDE_REQUEST");
-            intent.putExtra("payload", payload);
+            intent.putExtra("payload", payload != null ? payload : "");
             intent.putExtra("ride_id", rideId != null ? rideId : "");
             intent.putExtra("type", "RIDE_REQUEST");
-            
-            // ✅ استخراج بيانات إضافية من payload
-            try {
-                JSONObject json = new JSONObject(payload);
-                intent.putExtra("customer_name", json.optString("customer_name", ""));
-                intent.putExtra("amount", json.optString("amount", "0"));
-                intent.putExtra("vehicle_type", json.optString("vehicle_type", ""));
-            } catch (Exception e) {
-                System.err.println("⚠️ Could not parse payload extras");
-            }
-            
+
             intent.setFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK |
                 Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_NEW_TASK
             );
 
-            // ✅ استخدام rideId كـ requestCode لتجنب تكرار الـ PendingIntent
             int requestCode = rideId != null ? rideId.hashCode() : (int) System.currentTimeMillis();
-            
+
             PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 requestCode,
@@ -132,11 +117,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 System.err.println("⚠️ Sound resource not found");
             }
 
-            int notificationId = (int) System.currentTimeMillis();
+            // ✅ استخدام rideId كـ notification ID
+            int notificationId = rideId != null ? rideId.hashCode() : (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notification.build());
 
             System.out.println("✅ [FCM Service] Emergency notification shown");
-            System.out.println("✅ [FCM Service] ride_id: " + rideId);
+            System.out.println("🚗 Ride ID: " + rideId);
 
         } catch (Exception e) {
             System.err.println("❌ [FCM Service] Error showing emergency notification: " + e.getMessage());
@@ -151,9 +137,9 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             Intent intent = new Intent(this, MainActivity.class);
             intent.putExtra("payload", payload);
             intent.setFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK |
                 Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_NEW_TASK
             );
 
             PendingIntent pendingIntent = PendingIntent.getActivity(
