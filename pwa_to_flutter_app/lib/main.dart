@@ -247,7 +247,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  // ✅ الإشعارات الأخرى (يمكن معالجتها هنا أو تركها لـ FCM Service)
+  // ✅ الإشعارات الأخرى
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
 
@@ -456,7 +456,7 @@ class _DriverHomeState extends State<DriverHome> {
       _showDebugMessage('🚀 التطبيق جاهز، انتظر الإشعارات');
     });
 
-    // ✅ استماع لفتح الإشعار من Native (يتم استدعاؤه فوراً عند الضغط)
+    // ✅ استماع لفتح الإشعار من Native
     _nativeChannel.setMethodCallHandler((call) async {
       print('📱 [Flutter] MethodChannel call received: ${call.method}');
       
