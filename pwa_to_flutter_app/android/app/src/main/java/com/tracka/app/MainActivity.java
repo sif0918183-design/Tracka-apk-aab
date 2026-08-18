@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat;
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
-import org.json.JSONObject;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
@@ -20,7 +19,6 @@ public class MainActivity extends FlutterActivity {
     
     private FlutterEngine flutterEngineInstance;
     private String pendingPayload = null;
-    private String pendingRideId = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -29,6 +27,7 @@ public class MainActivity extends FlutterActivity {
         
         System.out.println("📱 [MainActivity] onCreate called");
         
+        // ✅ معالجة الـ Intent
         Intent intent = getIntent();
         if (intent != null) {
             System.out.println("📱 [MainActivity] Intent Action: " + intent.getAction());
@@ -39,22 +38,13 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // ✅ مهم جداً في singleTop mode
-        setIntent(intent);
-        
         System.out.println("📱 [MainActivity] onNewIntent called");
-        if (intent != null) {
-            System.out.println("📱 [MainActivity] Intent Action: " + intent.getAction());
-        }
         handleIntent(intent);
     }
 
     private void handleIntent(Intent intent) {
-        if (intent == null) {
-            System.out.println("📱 [MainActivity] handleIntent: Intent is null");
-            return;
-        }
-
+        if (intent == null) return;
+        
         String action = intent.getAction();
         String payload = intent.getStringExtra("payload");
         String rideId = intent.getStringExtra("ride_id");
@@ -67,31 +57,17 @@ public class MainActivity extends FlutterActivity {
         System.out.println("📱 [MainActivity] Payload: " + payload);
         System.out.println("📱 [MainActivity] ===================================");
 
+        // ✅ تخزين البيانات للـ Flutter
         if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
             pendingPayload = payload;
-            pendingRideId = rideId;
-            
             System.out.println("📱 [MainActivity] ✅ Pending payload stored");
             
-            // ✅ حفظ في SharedPreferences فوراً
+            // ✅ حفظ في SharedPreferences أيضاً كضمان إضافي
             if (payload != null && !payload.isEmpty()) {
                 SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
                 prefs.edit().putString("pending_payload", payload).apply();
                 System.out.println("📱 [MainActivity] ✅ Saved to SharedPreferences");
             }
-            
-            // ✅ إذا كان Flutter جاهزاً، أرسل فوراً
-            if (flutterEngineInstance != null) {
-                System.out.println("📱 [MainActivity] ✅ FlutterEngine ready, sending immediately");
-                new MethodChannel(
-                    flutterEngineInstance.getDartExecutor().getBinaryMessenger(),
-                    CHANNEL
-                ).invokeMethod("onNotificationOpened", pendingPayload);
-            } else {
-                System.out.println("📱 [MainActivity] ⏳ FlutterEngine not ready, will be sent on configure");
-            }
-        } else {
-            System.out.println("📱 [MainActivity] ⚠️ Not RIDE_REQUEST");
         }
     }
 
@@ -128,10 +104,12 @@ public class MainActivity extends FlutterActivity {
                         SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
                         payload = prefs.getString("pending_payload", null);
                         if (payload != null && !payload.isEmpty()) {
-                            System.out.println("📱 [MainActivity] Found payload in SharedPreferences");
-                            // ✅ لا نمسحها من SharedPreferences هنا، نمسحها بعد المعالجة
+                            prefs.edit().remove("pending_payload").apply();
                         }
                     }
+                    
+                    // ✅ مسح من الذاكرة بعد القراءة
+                    pendingPayload = null;
                     
                     System.out.println("📱 [MainActivity] Returning payload: " + payload);
                     result.success(payload);
@@ -139,9 +117,8 @@ public class MainActivity extends FlutterActivity {
                 } else if (call.method.equals("clearPendingNotification")) {
                     System.out.println("📱 [MainActivity] clearPendingNotification called");
                     pendingPayload = null;
-                    pendingRideId = null;
                     SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-                    prefs.edit().clear().apply();
+                    prefs.edit().remove("pending_payload").apply();
                     result.success(true);
                     
                 } else {
@@ -150,6 +127,7 @@ public class MainActivity extends FlutterActivity {
             });
         
         // ✅ لا نرسل البيانات هنا مباشرة، نترك Flutter يطلبها عبر getPendingNotification
+        // هذا يمنع فقدان البيانات في حالة Cold Start
     }
 
     private void createNotificationChannels() {
@@ -200,8 +178,9 @@ public class MainActivity extends FlutterActivity {
             intent.putExtra("payload", payload);
             intent.putExtra("type", "RIDE_REQUEST");
             
+            // ✅ استخراج ride_id من payload
             try {
-                JSONObject json = new JSONObject(payload);
+                org.json.JSONObject json = new org.json.JSONObject(payload);
                 String rideId = json.optString("ride_id");
                 if (rideId != null && !rideId.isEmpty()) {
                     intent.putExtra("ride_id", rideId);
@@ -211,14 +190,14 @@ public class MainActivity extends FlutterActivity {
             }
             
             intent.setFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
                 Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP |
-                Intent.FLAG_ACTIVITY_NEW_TASK
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
             );
 
             int requestCode = (int) System.currentTimeMillis();
             try {
-                JSONObject json = new JSONObject(payload);
+                org.json.JSONObject json = new org.json.JSONObject(payload);
                 String rideId = json.optString("ride_id");
                 if (rideId != null && !rideId.isEmpty()) {
                     requestCode = rideId.hashCode();
