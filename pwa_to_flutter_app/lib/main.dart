@@ -240,23 +240,19 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   print('📱 [Background] Received message type: $notifType');
 
-  // ✅ RIDE_REQUEST: فقط صوت واهتزاز، لا ننشئ إشعار Flutter
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) {
       print('📱 [Background] Duplicate ride ignored');
       return;
     }
-    // ✅ تشغيل الصوت والاهتزاز فقط
     _playAlertSoundInBackground();
-    print('📱 [Background] RIDE_REQUEST - Sound played, notification handled by Firebase');
-    return;
   }
 
-  // ✅ إشعارات السفر العادية
+  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
+  String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
+
   if (isTravelNotif) {
-    String title = message.notification?.title ?? 'تراكا';
-    String body = message.notification?.body ?? 'لديك إشعار جديد';
     await _globalNotifications.show(
       DateTime.now().millisecond,
       title,
@@ -276,6 +272,38 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
     print('📱 [Background] Travel notification shown');
+  } else if (isRideRequest) {
+    try {
+      await _globalNotifications.cancelAll();
+    } catch (_) {}
+
+    String? rideId = _extractRideId(data);
+    await _globalNotifications.show(
+      rideId?.hashCode ?? DateTime.now().millisecond,
+      title,
+      body,
+      fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          _emergencyChannelId,
+          _emergencyChannelName,
+          importance: fln.Importance.max,
+          priority: fln.Priority.max,
+          ongoing: true,
+          autoCancel: false,
+          playSound: true,
+          enableVibration: true,
+          additionalFlags: Int32List.fromList([4]),
+          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
+          timeoutAfter: 30000,
+          styleInformation: const fln.BigTextStyleInformation(''),
+        ),
+      ),
+      payload: jsonEncode(data),
+    );
+    print('📱 [Background] Ride notification shown');
   }
 }
 
@@ -467,7 +495,7 @@ class _DriverHomeState extends State<DriverHome> {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          await _handleNotificationClick(data);
+          _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -510,7 +538,7 @@ class _DriverHomeState extends State<DriverHome> {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed pending data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          await _handleNotificationClick(data);
+          _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing pending notification: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -613,6 +641,7 @@ class _DriverHomeState extends State<DriverHome> {
     
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
+    final bool isRideRequest = (notifType == _rideRequestType);
 
     stopGlobalAlertSound();
     _overlayEntry?.remove();
@@ -655,6 +684,7 @@ class _DriverHomeState extends State<DriverHome> {
       } catch (e) {
         print('❌ [Flutter] Error loading URL: $e');
         _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
+        // ✅ محاولة بديلة
         setState(() => _pendingUrl = url);
         _showDebugMessage('⏳ حفظ الرابط للمحاولة لاحقاً');
       }
