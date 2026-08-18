@@ -47,6 +47,9 @@ const int _alertDurationSeconds = 30;
 // ✅ مثيل الإشعارات العالمي للخلفية
 final fln.FlutterLocalNotificationsPlugin _globalNotifications = fln.FlutterLocalNotificationsPlugin();
 
+// ✅ مؤقت لمزامنة السائق
+Timer? _driverSyncTimer;
+
 String? _extractRideId(Map<String, dynamic> data) {
   dynamic rideId = data['ride_id'] ?? data['rideId'];
   if (rideId == null && data['payload'] != null) {
@@ -225,6 +228,26 @@ void _cancelAllNotifications() {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
+  Map<String, dynamic> data = message.data;
+  final String notifType = data['type']?.toString() ?? '';
+  final bool isRideRequest = (notifType == _rideRequestType);
+
+  print('📱 [Background] Received message type: $notifType');
+
+  // ✅ RIDE_REQUEST: فقط صوت واهتزاز، لا ننشئ إشعار Flutter
+  // الإشعار يتم إنشاؤه بواسطة Firebase Notification
+  if (isRideRequest) {
+    String? rideId = _extractRideId(data);
+    if (await _isDuplicateRide(rideId)) {
+      print('📱 [Background] Duplicate ride ignored');
+      return;
+    }
+    _playAlertSoundInBackground();
+    print('📱 [Background] RIDE_REQUEST - Sound played, notification handled by Firebase');
+    return;
+  }
+
+  // ✅ الإشعارات الأخرى (يمكن معالجتها هنا أو تركها لـ FCM Service)
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
 
@@ -233,26 +256,10 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await _createNotificationChannels(androidImpl);
   }
 
-  Map<String, dynamic> data = message.data;
-  final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
-  final bool isRideRequest = (notifType == _rideRequestType);
-
-  print('📱 [Background] Received message type: $notifType');
-
-  if (isRideRequest) {
-    String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) {
-      print('📱 [Background] Duplicate ride ignored');
-      return;
-    }
-    _playAlertSoundInBackground();
-  }
-
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : '🚨 طلب رحلة جديد');
-  String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
-
   if (isTravelNotif) {
+    String title = message.notification?.title ?? 'تراكا';
+    String body = message.notification?.body ?? 'لديك إشعار جديد';
     await _globalNotifications.show(
       DateTime.now().millisecond,
       title,
@@ -272,38 +279,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
     print('📱 [Background] Travel notification shown');
-  } else if (isRideRequest) {
-    try {
-      await _globalNotifications.cancelAll();
-    } catch (_) {}
-
-    String? rideId = _extractRideId(data);
-    await _globalNotifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond,
-      title,
-      body,
-      fln.NotificationDetails(
-        android: fln.AndroidNotificationDetails(
-          _emergencyChannelId,
-          _emergencyChannelName,
-          importance: fln.Importance.max,
-          priority: fln.Priority.max,
-          ongoing: true,
-          autoCancel: false,
-          playSound: true,
-          enableVibration: true,
-          additionalFlags: Int32List.fromList([4]),
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
-          sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
-          channelShowBadge: true,
-          visibility: fln.NotificationVisibility.public,
-          timeoutAfter: 30000,
-          styleInformation: const fln.BigTextStyleInformation(''),
-        ),
-      ),
-      payload: jsonEncode(data),
-    );
-    print('📱 [Background] Ride notification shown');
   }
 }
 
@@ -481,10 +456,9 @@ class _DriverHomeState extends State<DriverHome> {
       _showDebugMessage('🚀 التطبيق جاهز، انتظر الإشعارات');
     });
 
-    // ✅ استماع لفتح الإشعار من Native
+    // ✅ استماع لفتح الإشعار من Native (يتم استدعاؤه فوراً عند الضغط)
     _nativeChannel.setMethodCallHandler((call) async {
       print('📱 [Flutter] MethodChannel call received: ${call.method}');
-      _showDebugMessage('📱 استدعاء من Native: ${call.method}');
       
       if (call.method == 'onNotificationOpened') {
         final payload = call.arguments as String;
@@ -495,7 +469,7 @@ class _DriverHomeState extends State<DriverHome> {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed data: $data');
           _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          _handleNotificationClick(data);
+          await _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
           _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
@@ -507,6 +481,7 @@ class _DriverHomeState extends State<DriverHome> {
     _restoreDriver();
     _initConnectivity();
     
+    // ✅ فقط كاحتياطي لـ Cold Start
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingNotification();
     });
@@ -518,16 +493,16 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry?.remove();
     _overlayEntry = null;
     statusSyncTimer?.cancel();
+    _driverSyncTimer?.cancel();
     connectivitySubscription?.cancel();
     _globalAudioPlayer?.dispose();
     super.dispose();
   }
 
-  // ✅ التحقق من الإشعارات المعلقة من Native
+  // ✅ التحقق من الإشعارات المعلقة (احتياطي لـ Cold Start فقط)
   Future<void> _checkPendingNotification() async {
     try {
-      print('📱 [Flutter] Checking for pending notification...');
-      _showDebugMessage('🔍 جارٍ التحقق من الإشعارات المعلقة...');
+      print('📱 [Flutter] Checking for pending notification (cold start)...');
       
       final String? payload = await _nativeChannel.invokeMethod('getPendingNotification');
       if (payload != null && payload.isNotEmpty) {
@@ -536,20 +511,15 @@ class _DriverHomeState extends State<DriverHome> {
         
         try {
           final data = jsonDecode(payload);
-          print('📱 [Flutter] Parsed pending data: $data');
-          _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
-          _handleNotificationClick(data);
+          await _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing pending notification: $e');
-          _showDebugMessage('❌ خطأ في تحليل البيانات: $e', isError: true);
         }
       } else {
         print('📱 [Flutter] No pending notification');
-        _showDebugMessage('ℹ️ لا يوجد إشعارات معلقة');
       }
     } catch (e) {
       print('⚠️ Error checking pending notification: $e');
-      _showDebugMessage('⚠️ خطأ في التحقق: $e', isError: true);
     }
   }
 
@@ -641,7 +611,6 @@ class _DriverHomeState extends State<DriverHome> {
     
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
-    final bool isRideRequest = (notifType == _rideRequestType);
 
     stopGlobalAlertSound();
     _overlayEntry?.remove();
@@ -651,7 +620,7 @@ class _DriverHomeState extends State<DriverHome> {
     if (isTravelNotif) {
       _showDebugMessage('📱 فتح منصة السفر');
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
-      if (web != null) {
+      if (web != null && _isPageLoaded) {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
       } else {
         setState(() => _pendingUrl = travelUrl);
@@ -666,7 +635,6 @@ class _DriverHomeState extends State<DriverHome> {
     if (rideId == null || rideId.isEmpty) {
       print('❌ [Flutter] No rideId found in notification data');
       _showDebugMessage('⚠️ لا يوجد rideId في بيانات الإشعار!', isError: true);
-      _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 200)}', isError: true);
       return;
     }
 
@@ -676,20 +644,19 @@ class _DriverHomeState extends State<DriverHome> {
     _showDebugMessage('✅ فتح الرحلة ID: $rideId');
     
     // ✅ تحميل الرابط في WebView
-    if (web != null) {
-      print('📱 [Flutter] WebView available - loading URL');
+    if (web != null && _isPageLoaded) {
+      print('📱 [Flutter] WebView ready - loading URL');
       try {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
         _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
       } catch (e) {
         print('❌ [Flutter] Error loading URL: $e');
         _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
-        // ✅ محاولة بديلة
         setState(() => _pendingUrl = url);
         _showDebugMessage('⏳ حفظ الرابط للمحاولة لاحقاً');
       }
     } else {
-      print('📱 [Flutter] WebView not available - setting pending URL');
+      print('📱 [Flutter] WebView not ready - setting pending URL');
       setState(() => _pendingUrl = url);
       _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
@@ -1132,6 +1099,22 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ دالة مزامنة السائق مع إلغاء المؤقت القديم
+  void _startDriverSync() {
+    _driverSyncTimer?.cancel();
+    
+    _driverSyncTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (web == null) return;
+      try {
+        final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
+        if (res != null && res != 'null' && res != driverId) {
+          print('📱 [Flutter] 🔄 Driver ID changed to: $res');
+          _saveDriver(res);
+        }
+      } catch (_) {}
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1331,18 +1314,5 @@ class _DriverHomeState extends State<DriverHome> {
         ),
       ),
     );
-  }
-
-  void _startDriverSync() {
-    Timer.periodic(const Duration(seconds: 3), (timer) async {
-      if (web == null) return;
-      try {
-        final res = await web!.evaluateJavascript(source: "localStorage.getItem('driver_id')");
-        if (res != null && res != 'null' && res != driverId) {
-          print('📱 [Flutter] 🔄 Driver ID changed to: $res');
-          _saveDriver(res);
-        }
-      } catch (_) {}
-    });
   }
 }
