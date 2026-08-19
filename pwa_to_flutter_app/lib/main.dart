@@ -235,6 +235,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('📱 [Background] Received message type: $notifType');
 
   // ✅ RIDE_REQUEST: فقط صوت واهتزاز، لا ننشئ إشعار Flutter
+  // الإشعار يتم إنشاؤه بواسطة Firebase Notification
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) {
@@ -242,7 +243,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       return;
     }
     _playAlertSoundInBackground();
-    print('📱 [Background] RIDE_REQUEST - Sound played');
+    print('📱 [Background] RIDE_REQUEST - Sound played, notification handled by Firebase');
     return;
   }
 
@@ -314,22 +315,22 @@ Future<void> main() async {
 
   try {
     print('🔍 [Flutter] Requesting permissions on startup...');
-    
+
     if (defaultTargetPlatform == TargetPlatform.android) {
       final notificationStatus = await Permission.notification.request();
       print('📱 [Flutter] Notification permission status: $notificationStatus');
-      
+
       if (notificationStatus.isPermanentlyDenied) {
         print('⚠️ [Flutter] Notification permission permanently denied - opening settings');
         await openAppSettings();
       }
-      
+
       if (!notificationStatus.isGranted) {
         final retryStatus = await Permission.notification.request();
         print('📱 [Flutter] Notification permission after retry: $retryStatus');
       }
     }
-    
+
     await [
       Permission.location,
       Permission.camera,
@@ -340,7 +341,7 @@ Future<void> main() async {
       print('🔍 [Flutter] Requesting background location permission...');
       await Permission.locationAlways.request();
     }
-    
+
     print('✅ [Flutter] Permissions sequence processed successfully');
   } catch (e) {
     print('❌ [Flutter] Error requesting permissions on startup: $e');
@@ -430,7 +431,7 @@ class _DriverHomeState extends State<DriverHome> {
   void _showDebugMessage(String message, {bool isError = false}) {
     final context = navigatorKey.currentContext;
     if (context == null) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -452,21 +453,22 @@ class _DriverHomeState extends State<DriverHome> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showDebugMessage('🚀 التطبيق جاهز');
+      _showDebugMessage('🚀 التطبيق جاهز، انتظر الإشعارات');
     });
 
     // ✅ استماع لفتح الإشعار من Native
     _nativeChannel.setMethodCallHandler((call) async {
       print('📱 [Flutter] MethodChannel call received: ${call.method}');
-      
+
       if (call.method == 'onNotificationOpened') {
         final payload = call.arguments as String;
         print('📱 [Flutter] Notification opened from Native: $payload');
         _showDebugMessage('📱 تم فتح الإشعار من Native');
-        
+
         try {
           final data = jsonDecode(payload);
           print('📱 [Flutter] Parsed data: $data');
+          _showDebugMessage('📋 البيانات: ${data.toString().substring(0, 100)}...');
           await _handleNotificationClick(data);
         } catch (e) {
           print('❌ Error parsing notification payload: $e');
@@ -478,8 +480,8 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
-    
-    // ✅ التحقق من الإشعارات المعلقة (للـ Cold Start)
+
+    // ✅ فقط كاحتياطي لـ Cold Start
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingNotification();
     });
@@ -497,16 +499,16 @@ class _DriverHomeState extends State<DriverHome> {
     super.dispose();
   }
 
-  // ✅ التحقق من الإشعارات المعلقة
+  // ✅ التحقق من الإشعارات المعلقة (احتياطي لـ Cold Start فقط)
   Future<void> _checkPendingNotification() async {
     try {
-      print('📱 [Flutter] Checking for pending notification...');
-      
+      print('📱 [Flutter] Checking for pending notification (cold start)...');
+
       final String? payload = await _nativeChannel.invokeMethod('getPendingNotification');
       if (payload != null && payload.isNotEmpty) {
         print('📱 [Flutter] ✅ Pending notification found: $payload');
         _showDebugMessage('✅ تم العثور على إشعار معلق');
-        
+
         try {
           final data = jsonDecode(payload);
           await _handleNotificationClick(data);
@@ -550,14 +552,14 @@ class _DriverHomeState extends State<DriverHome> {
       if (token != null && token.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('fcm_token', token);
-        print('✅ [Flutter] FCM Token stored');
+        print('✅ [Flutter] FCM Token stored: ${token.substring(0, 20)}...');
       }
     } catch (e) {
       print('❌ [Flutter] Error getting token: $e');
     }
     
     messaging.onTokenRefresh.listen((newToken) async {
-      print('🔄 [Flutter] FCM Token refreshed');
+      print('🔄 [Flutter] FCM Token refreshed: $newToken');
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fcm_token', newToken);
@@ -567,6 +569,7 @@ class _DriverHomeState extends State<DriverHome> {
           await web!.evaluateJavascript(
             source: "if(window.onNativeTokenChanged) window.onNativeTokenChanged('$newToken');"
           );
+          print('✅ [Flutter] Token refresh sent to PWA');
         } catch (e) {
           print('⚠️ [Flutter] Could not send token refresh to PWA: $e');
         }
@@ -603,9 +606,9 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _handleNotificationClick(Map<String, dynamic> data) async {
     print('📱 [Flutter] ========== HANDLE NOTIFICATION CLICK ==========');
     print('📱 [Flutter] Data: $data');
-    
+
     _showDebugMessage('📱 تم فتح الإشعار');
-    
+
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
@@ -626,12 +629,12 @@ class _DriverHomeState extends State<DriverHome> {
       return;
     }
 
-    // ✅ استخراج ride_id
+    // ✅ استخراج ride_id من البيانات
     String? rideId = _extractRideId(data);
-    
+
     if (rideId == null || rideId.isEmpty) {
-      print('❌ [Flutter] No rideId found');
-      _showDebugMessage('⚠️ لا يوجد rideId', isError: true);
+      print('❌ [Flutter] No rideId found in notification data');
+      _showDebugMessage('⚠️ لا يوجد rideId في بيانات الإشعار!', isError: true);
       return;
     }
 
@@ -639,9 +642,10 @@ class _DriverHomeState extends State<DriverHome> {
     final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=$rideId";
     print('📱 [Flutter] ✅ Opening URL: $url');
     _showDebugMessage('✅ فتح الرحلة ID: $rideId');
-    
+
     // ✅ تحميل الرابط في WebView
     if (web != null && _isPageLoaded) {
+      print('📱 [Flutter] WebView ready - loading URL');
       try {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
         _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
@@ -649,13 +653,14 @@ class _DriverHomeState extends State<DriverHome> {
         print('❌ [Flutter] Error loading URL: $e');
         _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
         setState(() => _pendingUrl = url);
+        _showDebugMessage('⏳ حفظ الرابط للمحاولة لاحقاً');
       }
     } else {
       print('📱 [Flutter] WebView not ready - setting pending URL');
       setState(() => _pendingUrl = url);
       _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
-    
+
     print('📱 [Flutter] ===============================================');
   }
 
@@ -1094,9 +1099,10 @@ class _DriverHomeState extends State<DriverHome> {
     } catch (_) {}
   }
 
+  // ✅ دالة مزامنة السائق مع إلغاء المؤقت القديم
   void _startDriverSync() {
     _driverSyncTimer?.cancel();
-    
+
     _driverSyncTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       if (web == null) return;
       try {
@@ -1133,7 +1139,7 @@ class _DriverHomeState extends State<DriverHome> {
               web = controller;
               
               print('📱 [Flutter] 🚀 WebView Created');
-              
+
               // ✅ إذا كان هناك رابط معلق، حمله فوراً
               if (_pendingUrl != null) {
                 final url = _pendingUrl!;
