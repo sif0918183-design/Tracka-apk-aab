@@ -57,9 +57,7 @@ public class MainActivity extends FlutterActivity {
     }
 
     private void handleIntent(Intent intent) {
-        if (intent == null) {
-            return;
-        }
+        if (intent == null) return;
 
         String action = intent.getAction();
         String payload = intent.getStringExtra("payload");
@@ -67,47 +65,65 @@ public class MainActivity extends FlutterActivity {
         String type = intent.getStringExtra("type");
 
         System.out.println("📱 [MainActivity] ========== HANDLE INTENT ==========");
-        System.out.println("📱 [MainActivity] Action: " + action);
-        System.out.println("📱 [MainActivity] Ride ID: " + rideId);
-        System.out.println("📱 [MainActivity] Type: " + type);
-        System.out.println("📱 [MainActivity] Payload: " + payload);
-        System.out.println("📱 [MainActivity] ===================================");
+        System.out.println("📱 Action: " + action);
+        System.out.println("📱 Ride ID: " + rideId);
+        System.out.println("📱 Type: " + type);
+        System.out.println("📱 Payload: " + payload);
+        System.out.println("📱 ===========================================");
 
-        boolean isRideRequest = "OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type);
+        // ✅ RIDE_REQUEST
+        if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
+            
+            if (rideId == null || rideId.isEmpty()) {
+                // ✅ محاولة استخراج ride_id من payload
+                if (payload != null && !payload.isEmpty()) {
+                    try {
+                        JSONObject json = new JSONObject(payload);
+                        rideId = json.optString("ride_id", "");
+                    } catch (Exception e) {
+                        System.out.println("❌ Could not parse payload");
+                    }
+                }
+            }
 
-        if (!isRideRequest) {
-            System.out.println("📱 [MainActivity] Not RIDE_REQUEST");
-            return;
-        }
-
-        // ✅ إذا لم يصل payload نحاول بناءه من ride_id
-        if ((payload == null || payload.isEmpty()) && rideId != null && !rideId.isEmpty()) {
-            try {
-                JSONObject json = new JSONObject();
-                json.put("ride_id", rideId);
-                json.put("type", "RIDE_REQUEST");
-                payload = json.toString();
-                System.out.println("📱 [MainActivity] Built payload from ride_id: " + payload);
-            } catch (Exception e) {
-                System.err.println("❌ [MainActivity] Cannot build payload: " + e.getMessage());
+            if (rideId == null || rideId.isEmpty()) {
+                System.out.println("❌ No ride_id available");
                 return;
             }
-        }
 
-        if (payload == null || payload.isEmpty()) {
-            System.err.println("❌ [MainActivity] Empty payload");
+            // ✅ إذا لم يوجد payload نبنيه من البيانات
+            if (payload == null || payload.isEmpty()) {
+                try {
+                    JSONObject json = new JSONObject();
+                    json.put("ride_id", rideId);
+                    json.put("type", "RIDE_REQUEST");
+                    payload = json.toString();
+                } catch (Exception e) {
+                    System.out.println("❌ Could not create payload");
+                    return;
+                }
+            }
+
+            // ✅ حفظ الطلب المعلق
+            SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+            prefs.edit()
+                .putString("pending_payload", payload)
+                .putString("pending_ride_id", rideId)
+                .putLong("pending_timestamp", System.currentTimeMillis())
+                .apply();
+
+            System.out.println("✅ Pending RIDE_REQUEST saved: " + payload);
             return;
         }
 
-        // ✅ حفظ في SharedPreferences
-        SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-        prefs.edit()
-            .putString("pending_payload", payload)
-            .putString("pending_ride_id", rideId)
-            .putLong("pending_timestamp", System.currentTimeMillis())
-            .apply();
-
-        System.out.println("✅ [MainActivity] RIDE_REQUEST saved to SharedPreferences");
+        // ✅ التعامل مع payload للإشعارات الأخرى
+        if (payload != null && !payload.isEmpty()) {
+            SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+            prefs.edit()
+                .putString("pending_payload", payload)
+                .putLong("pending_timestamp", System.currentTimeMillis())
+                .apply();
+        }
     }
 
     @Override
@@ -128,6 +144,11 @@ public class MainActivity extends FlutterActivity {
                     
                 } else if (call.method.equals("cancelAllNotifications")) {
                     cancelAllNotifications();
+                    result.success(true);
+                    
+                } else if (call.method.equals("cancelRideNotification")) {
+                    String rideId = call.argument("rideId");
+                    cancelRideNotification(rideId);
                     result.success(true);
                     
                 } else if (call.method.equals("getPendingNotification")) {
@@ -160,31 +181,23 @@ public class MainActivity extends FlutterActivity {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
             // ✅ قناة الطوارئ مع الصوت
+            Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound");
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+
             NotificationChannel emergencyChannel = new NotificationChannel(
                 EMERGENCY_CHANNEL_ID,
                 "تنبيهات الطوارئ - تراكا",
                 NotificationManager.IMPORTANCE_MAX
             );
-            emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة");
+            emergencyChannel.setDescription("تنبيهات طلبات الرحلات الجديدة");
+            emergencyChannel.setSound(soundUri, audioAttributes);
             emergencyChannel.enableVibration(true);
             emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500});
+            emergencyChannel.setShowBadge(true);
             emergencyChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-            
-            // ✅ إضافة الصوت للقناة
-            try {
-                int soundResId = getResources().getIdentifier("ride_request_sound", "raw", getPackageName());
-                if (soundResId > 0) {
-                    Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound");
-                    AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build();
-                    emergencyChannel.setSound(soundUri, audioAttributes);
-                }
-            } catch (Exception e) {
-                System.err.println("⚠️ Sound resource not found for channel");
-            }
-            
             notificationManager.createNotificationChannel(emergencyChannel);
 
             // ✅ قناة السفر
@@ -297,6 +310,19 @@ public class MainActivity extends FlutterActivity {
             System.out.println("✅ All notifications cancelled");
         } catch (Exception e) {
             System.err.println("❌ Error cancelling notifications: " + e.getMessage());
+        }
+    }
+
+    public void cancelRideNotification(String rideId) {
+        if (rideId == null || rideId.isEmpty()) {
+            return;
+        }
+        try {
+            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            notificationManager.cancel(rideId.hashCode());
+            System.out.println("✅ Ride notification cancelled: " + rideId);
+        } catch (Exception e) {
+            System.err.println("❌ Error cancelling ride notification: " + e.getMessage());
         }
     }
 }
