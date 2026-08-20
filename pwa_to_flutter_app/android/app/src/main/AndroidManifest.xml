@@ -92,10 +92,17 @@
 
         </activity>
 
-        <!-- ✅ خدمة Firebase Messaging -->
+        <!-- ✅ خدمة Firebase Messaging الخاصة بنا -->
         <service
             android:name=".MyFirebaseMessagingService"
-            android:exported="false">
+            android:exported="false"
+            android:enabled="true" />
+
+        <!-- ✅ تعطيل Flutter Firebase Messaging Service -->
+        <service
+            android:name="com.google.firebase.messaging.FlutterFirebaseMessagingService"
+            android:exported="false"
+            tools:node="remove">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
@@ -127,7 +134,7 @@
         <!-- ✅ Flutter Embedding -->
         <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ✅ قناة إشعارات الطوارئ الافتراضية (تم التغيير إلى v16) -->
+        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
             android:value="emergency_channel_v16" />
