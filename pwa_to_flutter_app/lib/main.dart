@@ -30,8 +30,8 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 // ✅ نوع إشعار الرحلة الفورية (الطوارئ)
 const String _rideRequestType = 'RIDE_REQUEST';
 
-// ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v15';
+// ✅ معرف القناة الثابت (تم التغيير إلى v16)
+const String _emergencyChannelId = 'emergency_channel_v16';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 const String _travelChannelId = 'travel_notifications';
 const String _travelChannelName = 'إشعارات السفر - تراكا';
@@ -164,13 +164,15 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
   if (androidImpl == null) return;
 
   try {
-    for (int i = 10; i <= 20; i++) {
+    // ✅ حذف القنوات القديمة
+    for (int i = 10; i <= 16; i++) {
       try {
         await androidImpl.deleteNotificationChannel('emergency_channel_v$i');
         await androidImpl.deleteNotificationChannel('emergency_channel_backup_v$i');
       } catch (_) {}
     }
 
+    // ✅ قناة الطوارئ الجديدة v16
     final emergencyChan = fln.AndroidNotificationChannel(
       _emergencyChannelId,
       _emergencyChannelName,
@@ -183,6 +185,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
     );
     await androidImpl.createNotificationChannel(emergencyChan);
 
+    // ✅ قناة السفر
     const travelChan = fln.AndroidNotificationChannel(
       _travelChannelId,
       _travelChannelName,
@@ -193,6 +196,7 @@ Future<void> _createNotificationChannels(fln.AndroidFlutterLocalNotificationsPlu
     );
     await androidImpl.createNotificationChannel(travelChan);
 
+    // ✅ قناة خدمة الخلفية
     const serviceChan = fln.AndroidNotificationChannel(
       'foreground_service',
       'خدمة تراكا تعمل حالياً',
@@ -235,7 +239,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   print('📱 [Background] Received message type: $notifType');
 
-  // ✅ RIDE_REQUEST: فقط صوت واهتزاز، لا ننشئ إشعار Flutter
+  // ✅ RIDE_REQUEST: فقط صوت واهتزاز، الإشعار ينشأ من Native
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) {
@@ -243,11 +247,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       return;
     }
     _playAlertSoundInBackground();
-    print('📱 [Background] RIDE_REQUEST - Sound played');
+    print('📱 [Background] RIDE_REQUEST - Sound played, notification handled by Native');
     return;
   }
 
-  // ✅ الإشعارات الأخرى
+  // ✅ الإشعارات الأخرى (Travel notifications)
   const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await _globalNotifications.initialize(const fln.InitializationSettings(android: androidInit));
 
@@ -460,7 +464,7 @@ class _DriverHomeState extends State<DriverHome> {
     _restoreDriver();
     _initConnectivity();
     
-    // ✅ بدء فحص الإشعارات كل ثانية (الحل الجذري)
+    // ✅ بدء فحص الإشعارات كل ثانية
     _startNotificationChecker();
   }
 
@@ -477,7 +481,7 @@ class _DriverHomeState extends State<DriverHome> {
     super.dispose();
   }
 
-  // ✅ دالة فحص الإشعارات المعلقة (تعمل كل ثانية)
+  // ✅ فحص الإشعارات المعلقة كل ثانية
   void _startNotificationChecker() {
     _notificationCheckerTimer?.cancel();
     
@@ -488,15 +492,16 @@ class _DriverHomeState extends State<DriverHome> {
           print('📱 [Flutter] ✅ Pending notification found: $payload');
           _showDebugMessage('✅ تم العثور على إشعار');
           
-          // ✅ مسح الإشعار فوراً
-          await _nativeChannel.invokeMethod('clearPendingNotification');
-          
           try {
             final data = jsonDecode(payload);
-            await _handleNotificationClick(data);
+            if (data is Map) {
+              await _handleNotificationClick(Map<String, dynamic>.from(data));
+              await _nativeChannel.invokeMethod('clearPendingNotification');
+              print('✅ [Flutter] Pending notification handled successfully');
+            }
           } catch (e) {
-            print('❌ Error parsing notification: $e');
-            _showDebugMessage('❌ خطأ في تحليل البيانات', isError: true);
+            print('❌ [Flutter] Error parsing pending notification: $e');
+            // لا نمسح البيانات إذا فشل التحليل
           }
         }
       } catch (e) {
@@ -591,14 +596,13 @@ class _DriverHomeState extends State<DriverHome> {
     _showDebugMessage('📱 معالجة الإشعار');
     
     final String notifType = data['type']?.toString() ?? '';
-    final bool isTravelNotif = _travelTypes.contains(notifType);
 
     stopGlobalAlertSound();
     _overlayEntry?.remove();
     _overlayEntry = null;
 
-    // ✅ إشعارات السفر العادية
-    if (isTravelNotif) {
+    // ✅ إشعارات منصة السفر
+    if (_travelTypes.contains(notifType)) {
       _showDebugMessage('📱 فتح منصة السفر');
       const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
       if (web != null && _isPageLoaded) {
@@ -610,33 +614,40 @@ class _DriverHomeState extends State<DriverHome> {
       return;
     }
 
+    // ✅ يجب أن يكون طلب رحلة
+    if (notifType != _rideRequestType) {
+      print('⚠️ [Flutter] Unknown notification type: $notifType');
+      _showDebugMessage('⚠️ نوع إشعار غير معروف', isError: true);
+      return;
+    }
+
     // ✅ استخراج ride_id
-    String? rideId = _extractRideId(data);
+    final String? rideId = _extractRideId(data);
     
     if (rideId == null || rideId.isEmpty) {
       print('❌ [Flutter] No rideId found');
-      _showDebugMessage('⚠️ لا يوجد rideId', isError: true);
+      _showDebugMessage('⚠️ لا يوجد رقم للرحلة', isError: true);
       return;
     }
 
     // ✅ بناء الرابط
-    final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=$rideId";
-    print('📱 [Flutter] ✅ Opening URL: $url');
+    final String url = 'https://tracka.zoonasd.com/driver_app/accept-ride.html?ride_id=${Uri.encodeComponent(rideId)}';
+    print('📱 [Flutter] 🚗 Opening ride URL: $url');
     _showDebugMessage('✅ فتح الرحلة ID: $rideId');
     
     // ✅ تحميل الرابط في WebView
     if (web != null && _isPageLoaded) {
       try {
         await web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        print('✅ [Flutter] accept-ride.html requested');
         _showDebugMessage('🌐 جارٍ فتح صفحة القبول...');
-        print('✅ [Flutter] Page loaded successfully');
       } catch (e) {
-        print('❌ [Flutter] Error loading URL: $e');
+        print('❌ [Flutter] Error loading ride page: $e');
         _showDebugMessage('❌ خطأ في تحميل الصفحة: $e', isError: true);
         setState(() => _pendingUrl = url);
       }
     } else {
-      print('📱 [Flutter] WebView not ready - setting pending URL');
+      print('📱 [Flutter] WebView not ready');
       setState(() => _pendingUrl = url);
       _showDebugMessage('⏳ WebView غير جاهز، سيتم فتحه لاحقاً');
     }
