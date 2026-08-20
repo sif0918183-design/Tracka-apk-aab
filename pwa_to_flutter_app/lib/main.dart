@@ -129,7 +129,7 @@ void _playAlertSoundInBackground() {
       _globalAudioPlayer!.play(AssetSource('ride_request_sound.mp3'));
     } catch (_) {}
   }
-  
+
   // ✅ إيقاف تلقائي بعد 30 ثانية
   Future.delayed(Duration(seconds: _alertDurationSeconds), () {
     print('⏰ انتهت مدة الرنين (${_alertDurationSeconds} ثانية) - إيقاف تلقائي');
@@ -386,7 +386,7 @@ class _DriverHomeState extends State<DriverHome> {
           await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
         } catch (_) {}
       }
-      
+
       try {
         await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
         await androidImplementation.deleteNotificationChannel('emergency_channel_v12');
@@ -407,7 +407,7 @@ class _DriverHomeState extends State<DriverHome> {
         sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
       );
       await androidImplementation.createNotificationChannel(emergencyChan);
-      
+
       // ✅ قناة إشعارات السفر (هادئة - للرحلات العادية والمحادثات)
       const travelChan = fln.AndroidNotificationChannel(
         'travel_notifications',
@@ -418,7 +418,7 @@ class _DriverHomeState extends State<DriverHome> {
         enableVibration: true,
       );
       await androidImplementation.createNotificationChannel(travelChan);
-      
+
       print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
     }
   }
@@ -478,16 +478,16 @@ class _DriverHomeState extends State<DriverHome> {
       _overlayEntry = null;
       _handleNotificationClick(message.data);
     });
-    
-    messaging.getInitialMessage().then((message) { 
+
+    messaging.getInitialMessage().then((message) {
       if (message != null) {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        _handleNotificationClick(message.data); 
+        _handleNotificationClick(message.data);
       }
     });
-    
+
     FirebaseMessaging.onMessage.listen((message) {
       _handleFcmMessage(message);
     });
@@ -636,11 +636,11 @@ class _DriverHomeState extends State<DriverHome> {
       _globalAudioPlayer!.setVolume(1.0);
       _globalAudioPlayer!.setReleaseMode(ReleaseMode.loop);
       _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
-      
+
       _globalAlertTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
         if (_globalIsAlertPlaying) {
           try {
-            if (_globalAudioPlayer?.state == PlayerState.stopped || 
+            if (_globalAudioPlayer?.state == PlayerState.stopped ||
                 _globalAudioPlayer?.state == PlayerState.completed) {
               await _globalAudioPlayer!.play(AssetSource('sounds/ride_alert.mp3'));
             }
@@ -670,11 +670,11 @@ class _DriverHomeState extends State<DriverHome> {
       bool? hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
         Vibration.vibrate(pattern: [
-          0, 600, 200, 600, 200, 600, 200, 600, 
+          0, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600, 200, 600, 200, 600,
           200, 600, 200, 600
         ], repeat: 0);
-        
+
         for (int i = 2; i <= 12; i += 2) {
           Future.delayed(Duration(seconds: i), () {
             if (_globalIsAlertPlaying) {
@@ -689,12 +689,12 @@ class _DriverHomeState extends State<DriverHome> {
   void _stopAlerts() {
     print(' إيقاف جميع التنبيهات...');
     stopGlobalAlertSound();
-    
+
     if (_overlayEntry != null) {
       _overlayEntry!.remove();
       _overlayEntry = null;
     }
-    
+
     try {
       notifications.cancelAll();
     } catch (_) {}
@@ -850,7 +850,7 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlerts();
     
     try { 
-      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
+      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!);
     } catch (_) {}
     
     final rideId = _extractRideId(data);
@@ -940,7 +940,7 @@ class _DriverHomeState extends State<DriverHome> {
                 handlerName: 'getFCMToken',
                 callback: (args) async {
                   print('📱 [Flutter] 📞 getFCMToken called from PWA');
-                  
+
                   try {
                     // 1. طلب الأذونات
                     NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
@@ -950,7 +950,7 @@ class _DriverHomeState extends State<DriverHome> {
                     );
                     
                     print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
-                    
+
                     if (settings.authorizationStatus != AuthorizationStatus.authorized) {
                       print('📱 [Flutter] ⚠️ Not authorized');
                       return null;
@@ -974,10 +974,10 @@ class _DriverHomeState extends State<DriverHome> {
                       print('📱 [Flutter] ✅ Token: ${token.substring(0, 20)}...');
                       return token;
                     }
-                    
+
                     print('📱 [Flutter] ❌ No token available');
                     return null;
-                    
+
                   } catch (e) {
                     print('📱 [Flutter] ❌ Error: $e');
                     return null;

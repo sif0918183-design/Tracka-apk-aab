@@ -177,7 +177,7 @@ jobs:
           APK_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.apk"
           
           echo "📤 Uploading APK to Supabase..."
-          curl -X POST \
+          curl --http1.1 --retry 3 --retry-delay 2 -X POST \
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$APK_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/octet-stream" \
@@ -209,7 +209,7 @@ jobs:
           AAB_NAME="Tirhal-App-build-${BUILD_NUM}-${TIMESTAMP}.aab"
           
           echo "📤 Uploading AAB to Supabase..."
-          curl -X POST \
+          curl --http1.1 --retry 3 --retry-delay 2 -X POST \
             "${{ secrets.SUPABASE_URL }}/storage/v1/object/apk-builds/$AAB_NAME" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/octet-stream" \

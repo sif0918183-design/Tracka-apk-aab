@@ -12,7 +12,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
 
@@ -88,6 +90,15 @@
 
         </activity>
 
+        <!-- ✅ خدمة Firebase Messaging -->
+        <service
+            android:name=".MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- ✅ خدمات الإشعارات المحلية -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationService"
@@ -96,12 +107,9 @@
         <!-- ✅ خدمة الخلفية -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService"
-            android:foregroundServiceType="specialUse|dataSync"
-            android:exported="false">
-            <property
-                android:name="android.foreground_service_type_special_use"
-                android:value="tracka_background_service" />
-        </service>
+            android:foregroundServiceType="location"
+            tools:replace="android:foregroundServiceType"
+            android:exported="false" />
 
         <!-- ✅ InAppWebView -->
         <activity
@@ -138,6 +146,28 @@
         <meta-data
             android:name="flutter_local_notifications.default_channel_description"
             android:value="قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي" />
+
+        <!-- ✅ قناة إشعارات السفر -->
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_id"
+            android:value="travel_notifications" />
+
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_name"
+            android:value="إشعارات السفر - تراكا" />
+
+        <meta-data
+            android:name="flutter_local_notifications.travel_channel_description"
+            android:value="إشعارات قبول الرحلات والمحادثات" />
+
+        <!-- ✅ قناة خدمة الخلفية -->
+        <meta-data
+            android:name="flutter_foreground_task.notification_channel_id"
+            android:value="foreground_service" />
+
+        <meta-data
+            android:name="flutter_foreground_task.notification_channel_name"
+            android:value="خدمة تراكا تعمل حالياً" />
 
     </application>
 
