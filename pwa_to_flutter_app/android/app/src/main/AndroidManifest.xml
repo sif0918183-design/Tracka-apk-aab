@@ -17,8 +17,6 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -92,17 +90,10 @@
 
         </activity>
 
-        <!-- ✅ خدمة Firebase Messaging الخاصة بنا -->
+        <!-- ✅ خدمة Firebase Messaging -->
         <service
             android:name=".MyFirebaseMessagingService"
-            android:exported="false"
-            android:enabled="true" />
-
-        <!-- ✅ تعطيل Flutter Firebase Messaging Service -->
-        <service
-            android:name="com.google.firebase.messaging.FlutterFirebaseMessagingService"
-            android:exported="false"
-            tools:node="remove">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
@@ -137,7 +128,7 @@
         <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_v16" />
+            android:value="emergency_channel_v15" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
@@ -146,7 +137,7 @@
         <!-- ✅ إعدادات الإشعارات المحلية -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
-            android:value="emergency_channel_v16" />
+            android:value="emergency_channel_v15" />
 
         <meta-data
             android:name="flutter_local_notifications.default_channel_name"
