@@ -6,6 +6,8 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.AudioAttributes;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import androidx.core.app.NotificationCompat;
@@ -16,7 +18,7 @@ import org.json.JSONObject;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.tracka.app/notifications";
-    public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v15";
+    public static final String EMERGENCY_CHANNEL_ID = "emergency_channel_v16";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -44,9 +46,21 @@ public class MainActivity extends FlutterActivity {
         handleIntent(intent);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        System.out.println("📱 [MainActivity] onResume");
+        Intent intent = getIntent();
+        if (intent != null) {
+            handleIntent(intent);
+        }
+    }
+
     private void handleIntent(Intent intent) {
-        if (intent == null) return;
-        
+        if (intent == null) {
+            return;
+        }
+
         String action = intent.getAction();
         String payload = intent.getStringExtra("payload");
         String rideId = intent.getStringExtra("ride_id");
@@ -59,23 +73,41 @@ public class MainActivity extends FlutterActivity {
         System.out.println("📱 [MainActivity] Payload: " + payload);
         System.out.println("📱 [MainActivity] ===================================");
 
-        if ("OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type)) {
-            
-            if (payload == null || payload.isEmpty()) {
-                System.out.println("❌ [MainActivity] Empty payload");
+        boolean isRideRequest = "OPEN_RIDE_REQUEST".equals(action) || "RIDE_REQUEST".equals(type);
+
+        if (!isRideRequest) {
+            System.out.println("📱 [MainActivity] Not RIDE_REQUEST");
+            return;
+        }
+
+        // ✅ إذا لم يصل payload نحاول بناءه من ride_id
+        if ((payload == null || payload.isEmpty()) && rideId != null && !rideId.isEmpty()) {
+            try {
+                JSONObject json = new JSONObject();
+                json.put("ride_id", rideId);
+                json.put("type", "RIDE_REQUEST");
+                payload = json.toString();
+                System.out.println("📱 [MainActivity] Built payload from ride_id: " + payload);
+            } catch (Exception e) {
+                System.err.println("❌ [MainActivity] Cannot build payload: " + e.getMessage());
                 return;
             }
-            
-            // ✅ حفظ في SharedPreferences مع طابع زمني
-            SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
-            prefs.edit()
-                .putString("pending_payload", payload)
-                .putString("pending_ride_id", rideId)
-                .putLong("pending_timestamp", System.currentTimeMillis())
-                .apply();
-            
-            System.out.println("✅ [MainActivity] Data saved to SharedPreferences: " + payload);
         }
+
+        if (payload == null || payload.isEmpty()) {
+            System.err.println("❌ [MainActivity] Empty payload");
+            return;
+        }
+
+        // ✅ حفظ في SharedPreferences
+        SharedPreferences prefs = getSharedPreferences("notification_data", MODE_PRIVATE);
+        prefs.edit()
+            .putString("pending_payload", payload)
+            .putString("pending_ride_id", rideId)
+            .putLong("pending_timestamp", System.currentTimeMillis())
+            .apply();
+
+        System.out.println("✅ [MainActivity] RIDE_REQUEST saved to SharedPreferences");
     }
 
     @Override
@@ -127,6 +159,7 @@ public class MainActivity extends FlutterActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
+            // ✅ قناة الطوارئ مع الصوت
             NotificationChannel emergencyChannel = new NotificationChannel(
                 EMERGENCY_CHANNEL_ID,
                 "تنبيهات الطوارئ - تراكا",
@@ -135,10 +168,26 @@ public class MainActivity extends FlutterActivity {
             emergencyChannel.setDescription("قناة الطوارئ للرحلات الجديدة");
             emergencyChannel.enableVibration(true);
             emergencyChannel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500, 300, 500, 300, 500});
-            emergencyChannel.setShowBadge(true);
             emergencyChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+            
+            // ✅ إضافة الصوت للقناة
+            try {
+                int soundResId = getResources().getIdentifier("ride_request_sound", "raw", getPackageName());
+                if (soundResId > 0) {
+                    Uri soundUri = Uri.parse("android.resource://" + getPackageName() + "/raw/ride_request_sound");
+                    AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build();
+                    emergencyChannel.setSound(soundUri, audioAttributes);
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Sound resource not found for channel");
+            }
+            
             notificationManager.createNotificationChannel(emergencyChannel);
 
+            // ✅ قناة السفر
             NotificationChannel travelChannel = new NotificationChannel(
                 "travel_notifications",
                 "إشعارات السفر - تراكا",
@@ -150,6 +199,7 @@ public class MainActivity extends FlutterActivity {
             travelChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(travelChannel);
 
+            // ✅ قناة الخدمة
             NotificationChannel serviceChannel = new NotificationChannel(
                 "foreground_service",
                 "خدمة تراكا تعمل حالياً",
@@ -219,7 +269,7 @@ public class MainActivity extends FlutterActivity {
             try {
                 int soundResId = context.getResources().getIdentifier("ride_request_sound", "raw", context.getPackageName());
                 if (soundResId > 0) {
-                    notification.setSound(android.net.Uri.parse("android.resource://" + context.getPackageName() + "/raw/ride_request_sound"));
+                    notification.setSound(Uri.parse("android.resource://" + context.getPackageName() + "/raw/ride_request_sound"));
                 }
             } catch (Exception e) {
                 System.err.println("⚠️ Sound resource not found");
