@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <queries>
         <intent>
@@ -125,10 +127,10 @@
         <!-- ✅ Flutter Embedding -->
         <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
+        <!-- ✅ قناة إشعارات الطوارئ الافتراضية (تم التغيير إلى v16) -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v16" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
@@ -137,7 +139,7 @@
         <!-- ✅ إعدادات الإشعارات المحلية -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v16" />
 
         <meta-data
             android:name="flutter_local_notifications.default_channel_name"
