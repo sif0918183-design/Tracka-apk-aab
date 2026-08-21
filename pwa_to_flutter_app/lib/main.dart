@@ -239,58 +239,46 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  await Firebase.initializeApp();
-  print('✅ Firebase initialized');
-
-  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
   try {
-    print('🔍 [Flutter] Requesting foreground permissions on startup...');
-    await [
-      Permission.notification,
-      Permission.location,
-      Permission.camera,
-      Permission.ignoreBatteryOptimizations,
-    ].request();
-
-    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
-    if (await Permission.location.isGranted) {
-      print('🔍 [Flutter] Requesting background location permission...');
-      await Permission.locationAlways.request();
-    }
-    print('✅ [Flutter] Permissions sequence processed successfully');
+    await Firebase.initializeApp();
+    print('✅ Firebase initialized');
   } catch (e) {
-    print('❌ [Flutter] Error requesting permissions on startup: $e');
-  }
-
-  // ✅ التحقق من التوكن وجلبه فوراً بعد الحصول على الأذونات
-  try {
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', token);
-      print('✅ [Flutter] Initial token stored: ${token.substring(0, 20)}...');
-    } else {
-      print('⚠️ [Flutter] No initial token available');
-    }
-  } catch (e) {
-    print('❌ [Flutter] Error getting initial token: $e');
-  }
-
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-  if (kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+    print('❌ Firebase initialize error: $e');
   }
 
   const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  try {
+    final String url = supabaseUrl.isNotEmpty ? supabaseUrl : 'https://tracka.zoonasd.com';
+    final String key = supabaseAnonKey.isNotEmpty ? supabaseAnonKey : 'sb_anon_key_dummy_fallback';
+    await Supabase.initialize(
+      url: url,
+      anonKey: key,
+    );
+    print('✅ Supabase initialized');
+  } catch (e) {
+    print('❌ Supabase initialize error: $e');
+  }
 
-  _initForegroundTask();
+  try {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    print('❌ FirebaseMessaging background handler set error: $e');
+  }
+
+  if (kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+    } catch (_) {}
+  }
+
+  try {
+    _initForegroundTask();
+  } catch (e) {
+    print('❌ Foreground task init error: $e');
+  }
+
   runApp(const DriverApp());
 }
 
@@ -331,7 +319,13 @@ class DriverHome extends StatefulWidget {
 }
 
 class _DriverHomeState extends State<DriverHome> {
-  final supabase = Supabase.instance.client;
+  SupabaseClient? get supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
   InAppWebViewController? web;
   bool _isPageLoaded = false;
@@ -351,6 +345,24 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    _requestStartupPermissions();
+  }
+
+  Future<void> _requestStartupPermissions() async {
+    try {
+      await [
+        Permission.notification,
+        Permission.location,
+        Permission.camera,
+        Permission.ignoreBatteryOptimizations,
+      ].request();
+
+      if (await Permission.location.isGranted) {
+        await Permission.locationAlways.request();
+      }
+    } catch (e) {
+      print('❌ [Flutter] Error requesting permissions: $e');
+    }
   }
 
   @override
@@ -559,17 +571,21 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _restoreDriver() async {
-    final prefs = await SharedPreferences.getInstance();
-    driverId = prefs.getString('driver_id');
-    final lastUrl = prefs.getString('last_url');
-    if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
-      if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
-      else setState(() => _pendingUrl = lastUrl);
-    }
-    if (driverId != null) { 
-      _listenForRides(); 
-      _startStatusSyncWithPWA(); 
-      _startForegroundService(); 
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      driverId = prefs.getString('driver_id');
+      final lastUrl = prefs.getString('last_url');
+      if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
+        if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
+        else setState(() => _pendingUrl = lastUrl);
+      }
+      if (driverId != null) {
+        _listenForRides();
+        _startStatusSyncWithPWA();
+        _startForegroundService();
+      }
+    } catch (e) {
+      print('⚠️ _restoreDriver error: $e');
     }
   }
 
@@ -602,9 +618,9 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _listenForRides() {
-    if (driverId == null) return;
+    if (driverId == null || supabase == null) return;
     channel?.unsubscribe();
-    channel = supabase.channel('ride_requests_$driverId')
+    channel = supabase!.channel('ride_requests_$driverId')
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
@@ -850,7 +866,9 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlerts();
     
     try { 
-      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
+      if (supabase != null) {
+        await supabase!.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!);
+      }
     } catch (_) {}
     
     final rideId = _extractRideId(data);
@@ -889,9 +907,9 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _updateDriverStatusInSupabase(bool isOnline) async {
-    if (driverId == null) return;
+    if (driverId == null || supabase == null) return;
     try { 
-      await supabase.from('driver_locations').upsert({
+      await supabase!.from('driver_locations').upsert({
         'driver_id': driverId, 
         'is_online': isOnline, 
         'last_seen': DateTime.now().toIso8601String()

@@ -57,7 +57,7 @@ android {
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists() && rootProject.file('upload-keystore.jks').exists()) {
+            if (rootProject.file('key.properties').exists() && rootProject.file('upload-keystore.jks').exists()) {
                 storeFile rootProject.file('upload-keystore.jks')
                 storePassword keystoreProperties['KEYSTORE_PASSWORD']
                 keyAlias keystoreProperties['KEY_ALIAS']
