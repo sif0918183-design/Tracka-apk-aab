@@ -95,12 +95,6 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
 }
 
-tasks.whenTaskAdded { task ->
-    if (task.name.toLowerCase().contains("aarmetadata")) {
-        task.enabled = false
-    }
-}
-
 flutter {
     source '../..'
 }

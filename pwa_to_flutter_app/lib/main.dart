@@ -438,6 +438,12 @@ class _DriverHomeState extends State<DriverHome> {
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
+    try {
+      await messaging.setAutoInitEnabled(true);
+    } catch (e) {
+      print('⚠️ [Flutter] setAutoInitEnabled error: $e');
+    }
+
     // ✅ طلب الأذونات مع إعادة محاولة
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
@@ -969,8 +975,13 @@ class _DriverHomeState extends State<DriverHome> {
                     
                     print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
                     
-                    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-                      print('📱 [Flutter] ⚠️ Not authorized');
+                    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+                      print('📱 [Flutter] ⚠️ Permission denied');
+                      final prefs = await SharedPreferences.getInstance();
+                      final cachedToken = prefs.getString('fcm_token');
+                      if (cachedToken != null && cachedToken.isNotEmpty) {
+                        return cachedToken;
+                      }
                       return null;
                     }
                     
@@ -983,7 +994,7 @@ class _DriverHomeState extends State<DriverHome> {
                       } catch (e) {
                         print('📱 [Flutter] ❌ Attempt ${i+1} failed: $e');
                       }
-                      await Future.delayed(Duration(seconds: 1));
+                      await Future.delayed(const Duration(seconds: 1));
                     }
                     
                     if (token != null && token.isNotEmpty) {
@@ -993,12 +1004,25 @@ class _DriverHomeState extends State<DriverHome> {
                       return token;
                     }
                     
+                    // Fallback to stored token in SharedPreferences
+                    final prefs = await SharedPreferences.getInstance();
+                    final storedToken = prefs.getString('fcm_token');
+                    if (storedToken != null && storedToken.isNotEmpty) {
+                      print('📱 [Flutter] 🔑 Using fallback stored token: ${storedToken.substring(0, 20)}...');
+                      return storedToken;
+                    }
+
                     print('📱 [Flutter] ❌ No token available');
                     return null;
                     
                   } catch (e) {
                     print('📱 [Flutter] ❌ Error: $e');
-                    return null;
+                    try {
+                      final prefs = await SharedPreferences.getInstance();
+                      return prefs.getString('fcm_token');
+                    } catch (_) {
+                      return null;
+                    }
                   }
                 },
               );
