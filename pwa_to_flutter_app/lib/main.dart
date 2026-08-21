@@ -28,7 +28,7 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 const String _rideRequestType = 'RIDE_REQUEST';
 
 // ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v15';
+const String _emergencyChannelId = 'emergency_channel_v25';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -149,53 +149,61 @@ void _vibratePhoneBackground() {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    print('❌ [FCM][BACKGROUND] Firebase initialize error: $e');
+  }
 
-  Map<String, dynamic> data = message.data;
+  Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
   final bool isRideRequest = (notifType == _rideRequestType);
 
-  if (isRideRequest) {
-    String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) return;
-    _playAlertSoundInBackground();
-  }
+  print('📱 [FCM][BACKGROUND] Message received. type=$notifType, isRideRequest=$isRideRequest, isTravelNotif=$isTravelNotif');
 
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
-  const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
-  await notifications.initialize(const fln.InitializationSettings(android: android));
+  const androidInit = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
+  await notifications.initialize(const fln.InitializationSettings(android: androidInit));
 
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : ' طلب رحلة جديد');
-  String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
-
-  if (isTravelNotif) {
-    if (message.notification == null) {
-      await notifications.show(
-        DateTime.now().millisecond, title, body,
-        const fln.NotificationDetails(
-          android: fln.AndroidNotificationDetails(
-            'travel_notifications',
-            'إشعارات السفر - تراكا',
-            importance: fln.Importance.high,
-            priority: fln.Priority.high,
-            playSound: true,
-            enableVibration: true,
-            channelShowBadge: true,
-            visibility: fln.NotificationVisibility.public,
-          ),
-        ),
-        payload: jsonEncode(data),
-      );
-    }
-  } else if (isRideRequest) {
-    try {
-      await notifications.cancelAll();
-    } catch (_) {}
-
+  if (isRideRequest) {
     String? rideId = _extractRideId(data);
+    print('📱 [FCM][BACKGROUND] RIDE_REQUEST received. ride_id=$rideId');
+
+    if (await _isDuplicateRide(rideId)) {
+      print('📱 [FCM][BACKGROUND] Duplicate ride detected ($rideId), skipping.');
+      return;
+    }
+
+    _playAlertSoundInBackground();
+
+    // Ensure emergency channel is created in background isolate
+    final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImplementation != null) {
+      final emergencyChan = fln.AndroidNotificationChannel(
+        _emergencyChannelId,
+        _emergencyChannelName,
+        description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
+        importance: fln.Importance.max,
+        playSound: true,
+        enableVibration: true,
+        audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+        sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+      );
+      await androidImplementation.createNotificationChannel(emergencyChan);
+      print('📱 [FCM][BACKGROUND] Emergency channel ready: $_emergencyChannelId');
+    }
+
+    String customerName = data['customer_name'] ?? 'عميل';
+    String amount = data['amount']?.toString() ?? '0';
+    String title = ' طلب رحلة جديد';
+    String body = '$customerName - $amount SDG';
+
+    final notifId = rideId?.hashCode ?? DateTime.now().millisecond;
+    print('📱 [FCM][BACKGROUND] Showing local notification notifId=$notifId');
+
     await notifications.show(
-      rideId?.hashCode ?? DateTime.now().millisecond,
+      notifId,
       title,
       body,
       fln.NotificationDetails(
@@ -209,11 +217,34 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           playSound: true,
           enableVibration: true,
           additionalFlags: Int32List.fromList([4]),
-          vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
+          vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000, 500, 1000]),
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
           visibility: fln.NotificationVisibility.public,
           timeoutAfter: 30000,
+        ),
+      ),
+      payload: jsonEncode(data),
+    );
+    print('📱 [FCM][BACKGROUND] Local notification shown successfully');
+  } else if (isTravelNotif) {
+    String title = message.notification?.title ?? 'تراكا';
+    String body = message.notification?.body ?? 'لديك إشعار جديد';
+
+    await notifications.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      const fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          'travel_notifications',
+          'إشعارات السفر - تراكا',
+          importance: fln.Importance.high,
+          priority: fln.Priority.high,
+          playSound: true,
+          enableVibration: true,
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
         ),
       ),
       payload: jsonEncode(data),
@@ -239,58 +270,46 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  await Firebase.initializeApp();
-  print('✅ Firebase initialized');
-
-  // ✅ طلب الأذونات أولاً بترتيب صحيح (الأذونات العادية أولاً، ثم أذونات الخلفية لتجنب تجاهلها في أندرويد 11+)
   try {
-    print('🔍 [Flutter] Requesting foreground permissions on startup...');
-    await [
-      Permission.notification,
-      Permission.location,
-      Permission.camera,
-      Permission.ignoreBatteryOptimizations,
-    ].request();
-
-    // طلب إذن الموقع في الخلفية بشكل منفصل بعد منح الموقع العادي
-    if (await Permission.location.isGranted) {
-      print('🔍 [Flutter] Requesting background location permission...');
-      await Permission.locationAlways.request();
-    }
-    print('✅ [Flutter] Permissions sequence processed successfully');
+    await Firebase.initializeApp();
+    print('✅ Firebase initialized');
   } catch (e) {
-    print('❌ [Flutter] Error requesting permissions on startup: $e');
-  }
-
-  // ✅ التحقق من التوكن وجلبه فوراً بعد الحصول على الأذونات
-  try {
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fcm_token', token);
-      print('✅ [Flutter] Initial token stored: ${token.substring(0, 20)}...');
-    } else {
-      print('⚠️ [Flutter] No initial token available');
-    }
-  } catch (e) {
-    print('❌ [Flutter] Error getting initial token: $e');
-  }
-
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-  if (kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+    print('❌ Firebase initialize error: $e');
   }
 
   const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  try {
+    final String url = supabaseUrl.isNotEmpty ? supabaseUrl : 'https://tracka.zoonasd.com';
+    final String key = supabaseAnonKey.isNotEmpty ? supabaseAnonKey : 'sb_anon_key_dummy_fallback';
+    await Supabase.initialize(
+      url: url,
+      anonKey: key,
+    );
+    print('✅ Supabase initialized');
+  } catch (e) {
+    print('❌ Supabase initialize error: $e');
+  }
 
-  _initForegroundTask();
+  try {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    print('❌ FirebaseMessaging background handler set error: $e');
+  }
+
+  if (kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+    } catch (_) {}
+  }
+
+  try {
+    _initForegroundTask();
+  } catch (e) {
+    print('❌ Foreground task init error: $e');
+  }
+
   runApp(const DriverApp());
 }
 
@@ -331,7 +350,13 @@ class DriverHome extends StatefulWidget {
 }
 
 class _DriverHomeState extends State<DriverHome> {
-  final supabase = Supabase.instance.client;
+  SupabaseClient? get supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
   InAppWebViewController? web;
   bool _isPageLoaded = false;
@@ -351,6 +376,24 @@ class _DriverHomeState extends State<DriverHome> {
     _initFirebaseMessaging();
     _restoreDriver();
     _initConnectivity();
+    _requestStartupPermissions();
+  }
+
+  Future<void> _requestStartupPermissions() async {
+    try {
+      await [
+        Permission.notification,
+        Permission.location,
+        Permission.camera,
+        Permission.ignoreBatteryOptimizations,
+      ].request();
+
+      if (await Permission.location.isGranted) {
+        await Permission.locationAlways.request();
+      }
+    } catch (e) {
+      print('❌ [Flutter] Error requesting permissions: $e');
+    }
   }
 
   @override
@@ -369,31 +412,29 @@ class _DriverHomeState extends State<DriverHome> {
     await notifications.initialize(
       const fln.InitializationSettings(android: androidInit),
       onDidReceiveNotificationResponse: (details) {
+        print('📱 [Flutter] Local notification tapped with payload: ${details.payload}');
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
+        if (details.payload != null && details.payload!.isNotEmpty) {
+          try {
+            _handleNotificationClick(jsonDecode(details.payload!));
+          } catch (e) {
+            print('❌ Error parsing notification response payload: $e');
+          }
+        }
       }
     );
 
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
-      // ✅ حذف القنوات القديمة
-      for (int i = 10; i <= 20; i++) {
+      // ✅ Clean up older test channels if necessary
+      for (int i = 10; i <= 24; i++) {
         try {
           await androidImplementation.deleteNotificationChannel('emergency_channel_v$i');
-          await androidImplementation.deleteNotificationChannel('emergency_channel_backup_v$i');
         } catch (_) {}
       }
-      
-      try {
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v11');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v12');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v13');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_v14');
-        await androidImplementation.deleteNotificationChannel('emergency_channel_backup');
-      } catch (_) {}
 
       // ✅ إنشاء قناة الطوارئ الرئيسية (للرحلات الفورية)
       final emergencyChan = fln.AndroidNotificationChannel(
@@ -419,13 +460,40 @@ class _DriverHomeState extends State<DriverHome> {
       );
       await androidImplementation.createNotificationChannel(travelChan);
       
-      print('✅ تم إنشاء قناة الإشعارات: $_emergencyChannelId');
+      print('✅ [Flutter] Emergency channel initialized: $_emergencyChannelId');
+    }
+
+    // Check if the application was launched via tapping a local notification
+    try {
+      final details = await notifications.getNotificationAppLaunchDetails();
+      if (details != null && details.didNotificationLaunchApp && details.notificationResponse?.payload != null) {
+        final payload = details.notificationResponse!.payload!;
+        print('📱 [Flutter] App launched from local notification tap: $payload');
+        stopGlobalAlertSound();
+        _overlayEntry?.remove();
+        _overlayEntry = null;
+        if (payload.isNotEmpty) {
+          try {
+            _handleNotificationClick(jsonDecode(payload));
+          } catch (e) {
+            print('❌ Error handling app launch notification payload: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ Error checking getNotificationAppLaunchDetails: $e');
     }
   }
 
   Future<void> _initFirebaseMessaging() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     
+    try {
+      await messaging.setAutoInitEnabled(true);
+    } catch (e) {
+      print('⚠️ [Flutter] setAutoInitEnabled error: $e');
+    }
+
     // ✅ طلب الأذونات مع إعادة محاولة
     NotificationSettings settings = await messaging.requestPermission(
       alert: true,
@@ -536,6 +604,8 @@ class _DriverHomeState extends State<DriverHome> {
     final bool isTravelNotif = _travelTypes.contains(notifType);
     final bool isRideRequest = (notifType == _rideRequestType);
 
+    print('📱 [FCM][FOREGROUND] Message received. type=$notifType, isRideRequest=$isRideRequest');
+
     if (isTravelNotif) {
       await _showTravelNotification(data, message.notification?.title, message.notification?.body);
       return;
@@ -543,7 +613,11 @@ class _DriverHomeState extends State<DriverHome> {
 
     if (isRideRequest) {
       String? rideId = _extractRideId(data);
-      if (await _isDuplicateRide(rideId)) return;
+      print('📱 [FCM][FOREGROUND] RIDE_REQUEST received. ride_id=$rideId');
+      if (await _isDuplicateRide(rideId)) {
+        print('📱 [FCM][FOREGROUND] Duplicate ride detected ($rideId), skipping.');
+        return;
+      }
 
       stopGlobalAlertSound();
       _playAlertSound();
@@ -551,7 +625,7 @@ class _DriverHomeState extends State<DriverHome> {
       _showRideRequestModal(data);
       await _showLocalNotification(data);
       await _sendToPWA(data);
-      
+      print('📱 [FCM][FOREGROUND] Ride request modal & notification shown successfully');
       return;
     }
 
@@ -559,17 +633,21 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _restoreDriver() async {
-    final prefs = await SharedPreferences.getInstance();
-    driverId = prefs.getString('driver_id');
-    final lastUrl = prefs.getString('last_url');
-    if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
-      if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
-      else setState(() => _pendingUrl = lastUrl);
-    }
-    if (driverId != null) { 
-      _listenForRides(); 
-      _startStatusSyncWithPWA(); 
-      _startForegroundService(); 
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      driverId = prefs.getString('driver_id');
+      final lastUrl = prefs.getString('last_url');
+      if (_pendingUrl == null && lastUrl != null && lastUrl.isNotEmpty) {
+        if (web != null) web!.loadUrl(urlRequest: URLRequest(url: WebUri(lastUrl)));
+        else setState(() => _pendingUrl = lastUrl);
+      }
+      if (driverId != null) {
+        _listenForRides();
+        _startStatusSyncWithPWA();
+        _startForegroundService();
+      }
+    } catch (e) {
+      print('⚠️ _restoreDriver error: $e');
     }
   }
 
@@ -602,9 +680,9 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _listenForRides() {
-    if (driverId == null) return;
+    if (driverId == null || supabase == null) return;
     channel?.unsubscribe();
-    channel = supabase.channel('ride_requests_$driverId')
+    channel = supabase!.channel('ride_requests_$driverId')
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
@@ -850,7 +928,9 @@ class _DriverHomeState extends State<DriverHome> {
     _stopAlerts();
     
     try { 
-      await supabase.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!); 
+      if (supabase != null) {
+        await supabase!.from('ride_requests').update({'status': 'accepted'}).eq('ride_id', data['ride_id'] ?? data['rideId']).eq('driver_id', driverId!);
+      }
     } catch (_) {}
     
     final rideId = _extractRideId(data);
@@ -889,9 +969,9 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> _updateDriverStatusInSupabase(bool isOnline) async {
-    if (driverId == null) return;
+    if (driverId == null || supabase == null) return;
     try { 
-      await supabase.from('driver_locations').upsert({
+      await supabase!.from('driver_locations').upsert({
         'driver_id': driverId, 
         'is_online': isOnline, 
         'last_seen': DateTime.now().toIso8601String()
@@ -951,8 +1031,13 @@ class _DriverHomeState extends State<DriverHome> {
                     
                     print('📱 [Flutter] 📋 Permission: ${settings.authorizationStatus}');
                     
-                    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-                      print('📱 [Flutter] ⚠️ Not authorized');
+                    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+                      print('📱 [Flutter] ⚠️ Permission denied');
+                      final prefs = await SharedPreferences.getInstance();
+                      final cachedToken = prefs.getString('fcm_token');
+                      if (cachedToken != null && cachedToken.isNotEmpty) {
+                        return cachedToken;
+                      }
                       return null;
                     }
                     
@@ -965,7 +1050,7 @@ class _DriverHomeState extends State<DriverHome> {
                       } catch (e) {
                         print('📱 [Flutter] ❌ Attempt ${i+1} failed: $e');
                       }
-                      await Future.delayed(Duration(seconds: 1));
+                      await Future.delayed(const Duration(seconds: 1));
                     }
                     
                     if (token != null && token.isNotEmpty) {
@@ -975,12 +1060,25 @@ class _DriverHomeState extends State<DriverHome> {
                       return token;
                     }
                     
+                    // Fallback to stored token in SharedPreferences
+                    final prefs = await SharedPreferences.getInstance();
+                    final storedToken = prefs.getString('fcm_token');
+                    if (storedToken != null && storedToken.isNotEmpty) {
+                      print('📱 [Flutter] 🔑 Using fallback stored token: ${storedToken.substring(0, 20)}...');
+                      return storedToken;
+                    }
+
                     print('📱 [Flutter] ❌ No token available');
                     return null;
                     
                   } catch (e) {
                     print('📱 [Flutter] ❌ Error: $e');
-                    return null;
+                    try {
+                      final prefs = await SharedPreferences.getInstance();
+                      return prefs.getString('fcm_token');
+                    } catch (_) {
+                      return null;
+                    }
                   }
                 },
               );
