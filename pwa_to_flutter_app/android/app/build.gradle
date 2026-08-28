@@ -34,7 +34,7 @@ apply plugin: 'com.google.gms.google-services'
 
 android {
     namespace "com.tracka.app"
-    compileSdkVersion 35
+    compileSdkVersion 36
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -60,7 +60,7 @@ android {
         applicationId "com.tracka.app"
         
         minSdkVersion 21
-        targetSdkVersion 35
+        targetSdkVersion 36
         
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
