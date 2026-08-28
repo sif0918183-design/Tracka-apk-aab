@@ -1,7 +1,7 @@
 name: tarhal_zoona_driver
 description: تطبيق سائق ترحال زونا
 publish_to: 'none'
-version: 1.0.3+9
+version: 1.0.3+10
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -14,10 +14,10 @@ dependencies:
   firebase_messaging: ^15.2.0
   flutter_inappwebview: ^6.1.5
   audioplayers: ^5.2.1
-  vibration: ^1.9.0
+  vibration: ^3.1.8
   flutter_local_notifications: ^18.0.1
   shared_preferences: ^2.2.2
-  permission_handler: ^11.0.1
+  permission_handler: ^11.3.1
   connectivity_plus: ^5.0.2
   url_launcher: ^6.1.14
   flutter_foreground_task: ^8.17.0
