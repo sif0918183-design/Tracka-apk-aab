@@ -117,19 +117,19 @@
         <!-- ✅ Flutter Embedding -->
         <meta-data android:name="flutterEmbedding" android:value="2" />
         
-        <!-- ✅ قناة إشعارات الطوارئ الافتراضية -->
+        <!-- ✅ قناة إشعارات الطوارئ الافتراضية (تحديث إلى v25) -->
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_channel_id" 
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v25" />
         
         <meta-data 
             android:name="com.google.firebase.messaging.default_notification_icon" 
             android:resource="@mipmap/ic_launcher" />
 
-        <!-- ✅ إعدادات الإشعارات المحلية -->
+        <!-- ✅ إعدادات الإشعارات المحلية (تحديث إلى v25) -->
         <meta-data
             android:name="flutter_local_notifications.default_channel_id"
-            android:value="emergency_channel_v15" />
+            android:value="emergency_channel_v25" />
 
         <meta-data
             android:name="flutter_local_notifications.default_channel_name"

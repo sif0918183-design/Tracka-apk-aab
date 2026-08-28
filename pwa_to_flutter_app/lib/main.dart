@@ -27,8 +27,8 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 // ✅ نوع إشعار الرحلة الفورية (الطوارئ)
 const String _rideRequestType = 'RIDE_REQUEST';
 
-// ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v15';
+// ✅ معرف القناة الثابت (تم تحديثه إلى v25 لضمان ظهور Heads-up Popup بـ Importance.max)
+const String _emergencyChannelId = 'emergency_channel_v25';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -165,6 +165,22 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final fln.FlutterLocalNotificationsPlugin notifications = fln.FlutterLocalNotificationsPlugin();
   const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await notifications.initialize(const fln.InitializationSettings(android: android));
+
+  // ✅ التأكد من إنشاء قناة الطوارئ في العزل الخلفي (Background Isolate) لمنع تخلف الإشعار المنبثق
+  final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+  if (androidImplementation != null) {
+    final emergencyChan = fln.AndroidNotificationChannel(
+      _emergencyChannelId,
+      _emergencyChannelName,
+      description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
+      importance: fln.Importance.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+      sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+    );
+    await androidImplementation.createNotificationChannel(emergencyChan);
+  }
 
   String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : ' طلب رحلة جديد');
   String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
