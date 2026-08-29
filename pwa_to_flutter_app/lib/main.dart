@@ -151,16 +151,28 @@ void _vibratePhoneBackground() {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
+  print('📱 [RIDE_DEBUG] BACKGROUND HANDLER ENTERED');
+  print('📱 [RIDE_DEBUG] message.data = ${message.data}');
+  print('📱 [RIDE_DEBUG] message.notification = ${message.notification}');
+
+  if (message.notification != null) {
+    print('⚠️ [RIDE_DEBUG] ERROR: MESSAGE IS NOT DATA-ONLY! Contains notification title: ${message.notification?.title}');
+  } else {
+    print('✅ [RIDE_DEBUG] CONFIRMED: MESSAGE IS DATA-ONLY');
+  }
+
   Map<String, dynamic> data = message.data;
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
   final bool isRideRequest = (notifType == _rideRequestType);
 
+  print('📱 [RIDE_DEBUG] type = $notifType');
+  print('📱 [RIDE_DEBUG] ride_id = ${_extractRideId(data)}');
+
   if (isRideRequest) {
-    print('📱 [RIDE_REQUEST] DATA-ONLY message received');
     String? rideId = _extractRideId(data);
     if (await _isDuplicateRide(rideId)) {
-      print('⚠️ [RIDE_REQUEST] Duplicate ride request ignored: $rideId');
+      print('⚠️ [RIDE_DEBUG] Duplicate ride request ignored: $rideId');
       return;
     }
     _playAlertSoundInBackground();
@@ -172,7 +184,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
   if (androidImplementation != null) {
-    print('📱 [RIDE_REQUEST] Creating emergency_channel_v25');
     final emergencyChan = fln.AndroidNotificationChannel(
       _emergencyChannelId,
       _emergencyChannelName,
@@ -184,9 +195,18 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
     );
     await androidImplementation.createNotificationChannel(emergencyChan);
+
+    try {
+      final channels = await androidImplementation.getNotificationChannels();
+      final currentChan = channels?.firstWhere((c) => c.id == _emergencyChannelId, orElse: () => emergencyChan);
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL IMPORTANCE = ${currentChan?.importance}');
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL SOUND = ${currentChan?.sound?.sound}');
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL VIBRATION = ${currentChan?.enableVibration}');
+    } catch (e) {
+      print('⚠️ [RIDE_DEBUG] Error fetching channel status: $e');
+    }
   }
 
-  // ✅ للرسائل DATA-ONLY: استخدام البيانات القادمة في message.data مع fallback آمن
   String title = data['title']?.toString() ?? message.notification?.title ?? (isTravelNotif ? 'تراكا' : 'طلب رحلة جديد - تراكا');
   String body = data['body']?.toString() ?? message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
@@ -208,7 +228,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       payload: jsonEncode(data),
     );
   } else if (isRideRequest) {
-    print('📱 [RIDE_REQUEST] Showing local notification');
+    print('📱 [RIDE_DEBUG] ABOUT TO SHOW LOCAL NOTIFICATION');
+    print('📱 [RIDE_DEBUG] channel = $_emergencyChannelId');
+    print('📱 [RIDE_DEBUG] importance = max');
+    print('📱 [RIDE_DEBUG] priority = max');
+    print('📱 [RIDE_DEBUG] ongoing = false');
+
     String? rideId = _extractRideId(data);
     await notifications.show(
       rideId?.hashCode ?? DateTime.now().millisecond,
@@ -221,12 +246,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: fln.Importance.max,
           priority: fln.Priority.max,
           ongoing: false,
-          autoCancel: false,
+          autoCancel: true,
           playSound: true,
           enableVibration: true,
           category: fln.AndroidNotificationCategory.alarm,
           ticker: 'طلب رحلة جديد',
-          additionalFlags: Int32List.fromList([4]),
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
@@ -236,7 +260,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
-    print('📱 [RIDE_REQUEST] Notification shown successfully');
+    print('📱 [RIDE_DEBUG] LOCAL NOTIFICATION SHOW SUCCESS');
   }
 }
 
@@ -727,7 +751,7 @@ class _DriverHomeState extends State<DriverHome> {
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
-        ' طلب رحلة جديد',
+        'طلب رحلة جديد - تراكا',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
@@ -736,12 +760,11 @@ class _DriverHomeState extends State<DriverHome> {
             importance: fln.Importance.max,
             priority: fln.Priority.max,
             ongoing: false,
-            autoCancel: false,
+            autoCancel: true,
             playSound: true,
             enableVibration: true,
             category: fln.AndroidNotificationCategory.alarm,
             ticker: 'طلب رحلة جديد',
-            additionalFlags: Int32List.fromList([4]),
             vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
