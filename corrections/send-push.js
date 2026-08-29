@@ -56,7 +56,7 @@ async function sendPushNotification(driverId, rideData) {
                 timestamp: rideData.timestamp,
                 type: 'ride_request'
             },
-            android_channel_id: 'ride_requests_channel',
+            android_channel_id: 'emergency_channel_v25',
             priority: 10,
             ttl: 60,
             android_visibility: 1,
