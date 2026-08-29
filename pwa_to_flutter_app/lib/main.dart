@@ -27,8 +27,8 @@ const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
 // ✅ نوع إشعار الرحلة الفورية (الطوارئ)
 const String _rideRequestType = 'RIDE_REQUEST';
 
-// ✅ معرف القناة الثابت
-const String _emergencyChannelId = 'emergency_channel_v15';
+// ✅ معرف القناة الثابت (تم تحديثه إلى v25 لضمان ظهور Heads-up Popup بـ Importance.max)
+const String _emergencyChannelId = 'emergency_channel_v25';
 const String _emergencyChannelName = 'تنبيهات الطوارئ - تراكا';
 
 // ✅ متغيرات عالمية للصوت والاهتزاز
@@ -151,14 +151,30 @@ void _vibratePhoneBackground() {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
+  print('📱 [RIDE_DEBUG] BACKGROUND HANDLER ENTERED');
+  print('📱 [RIDE_DEBUG] message.data = ${message.data}');
+  print('📱 [RIDE_DEBUG] message.notification = ${message.notification}');
+
+  if (message.notification != null) {
+    print('⚠️ [RIDE_DEBUG] ERROR: MESSAGE IS NOT DATA-ONLY! Contains notification title: ${message.notification?.title}');
+  } else {
+    print('✅ [RIDE_DEBUG] CONFIRMED: MESSAGE IS DATA-ONLY');
+  }
+
   Map<String, dynamic> data = message.data;
   final String notifType = data['type']?.toString() ?? '';
   final bool isTravelNotif = _travelTypes.contains(notifType);
   final bool isRideRequest = (notifType == _rideRequestType);
 
+  print('📱 [RIDE_DEBUG] type = $notifType');
+  print('📱 [RIDE_DEBUG] ride_id = ${_extractRideId(data)}');
+
   if (isRideRequest) {
     String? rideId = _extractRideId(data);
-    if (await _isDuplicateRide(rideId)) return;
+    if (await _isDuplicateRide(rideId)) {
+      print('⚠️ [RIDE_DEBUG] Duplicate ride request ignored: $rideId');
+      return;
+    }
     _playAlertSoundInBackground();
   }
 
@@ -166,32 +182,57 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   const android = fln.AndroidInitializationSettings('@mipmap/ic_launcher');
   await notifications.initialize(const fln.InitializationSettings(android: android));
 
-  String title = message.notification?.title ?? (isTravelNotif ? 'تراكا' : ' طلب رحلة جديد');
-  String body = message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
+  final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+  if (androidImplementation != null) {
+    final emergencyChan = fln.AndroidNotificationChannel(
+      _emergencyChannelId,
+      _emergencyChannelName,
+      description: 'قناة الطوارئ للرحلات الجديدة - صوت عالٍ واهتزاز قوي',
+      importance: fln.Importance.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: fln.AudioAttributesUsage.notificationRingtone,
+      sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
+    );
+    await androidImplementation.createNotificationChannel(emergencyChan);
+
+    try {
+      final channels = await androidImplementation.getNotificationChannels();
+      final currentChan = channels?.firstWhere((c) => c.id == _emergencyChannelId, orElse: () => emergencyChan);
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL IMPORTANCE = ${currentChan?.importance}');
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL SOUND = ${currentChan?.sound?.sound}');
+      print('📱 [RIDE_DEBUG] ACTUAL CHANNEL VIBRATION = ${currentChan?.enableVibration}');
+    } catch (e) {
+      print('⚠️ [RIDE_DEBUG] Error fetching channel status: $e');
+    }
+  }
+
+  String title = data['title']?.toString() ?? message.notification?.title ?? (isTravelNotif ? 'تراكا' : 'طلب رحلة جديد - تراكا');
+  String body = data['body']?.toString() ?? message.notification?.body ?? (isTravelNotif ? 'لديك إشعار جديد' : 'يوجد طلب رحلة جديد في انتظارك');
 
   if (isTravelNotif) {
-    if (message.notification == null) {
-      await notifications.show(
-        DateTime.now().millisecond, title, body,
-        const fln.NotificationDetails(
-          android: fln.AndroidNotificationDetails(
-            'travel_notifications',
-            'إشعارات السفر - تراكا',
-            importance: fln.Importance.high,
-            priority: fln.Priority.high,
-            playSound: true,
-            enableVibration: true,
-            channelShowBadge: true,
-            visibility: fln.NotificationVisibility.public,
-          ),
+    await notifications.show(
+      DateTime.now().millisecond, title, body,
+      const fln.NotificationDetails(
+        android: fln.AndroidNotificationDetails(
+          'travel_notifications',
+          'إشعارات السفر - تراكا',
+          importance: fln.Importance.high,
+          priority: fln.Priority.high,
+          playSound: true,
+          enableVibration: true,
+          channelShowBadge: true,
+          visibility: fln.NotificationVisibility.public,
         ),
-        payload: jsonEncode(data),
-      );
-    }
+      ),
+      payload: jsonEncode(data),
+    );
   } else if (isRideRequest) {
-    try {
-      await notifications.cancelAll();
-    } catch (_) {}
+    print('📱 [RIDE_DEBUG] ABOUT TO SHOW LOCAL NOTIFICATION');
+    print('📱 [RIDE_DEBUG] channel = $_emergencyChannelId');
+    print('📱 [RIDE_DEBUG] importance = max');
+    print('📱 [RIDE_DEBUG] priority = max');
+    print('📱 [RIDE_DEBUG] ongoing = false');
 
     String? rideId = _extractRideId(data);
     await notifications.show(
@@ -204,11 +245,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           _emergencyChannelName,
           importance: fln.Importance.max,
           priority: fln.Priority.max,
-          ongoing: true,
-          autoCancel: false,
+          ongoing: false,
+          autoCancel: true,
           playSound: true,
           enableVibration: true,
-          additionalFlags: Int32List.fromList([4]),
+          category: fln.AndroidNotificationCategory.alarm,
+          ticker: 'طلب رحلة جديد',
           vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
           sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
           channelShowBadge: true,
@@ -218,6 +260,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ),
       payload: jsonEncode(data),
     );
+    print('📱 [RIDE_DEBUG] LOCAL NOTIFICATION SHOW SUCCESS');
   }
 }
 
@@ -708,7 +751,7 @@ class _DriverHomeState extends State<DriverHome> {
 
       await notifications.show(
         rideId?.hashCode ?? DateTime.now().millisecond,
-        ' طلب رحلة جديد',
+        'طلب رحلة جديد - تراكا',
         '$name - $amount SDG',
         fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
@@ -716,11 +759,12 @@ class _DriverHomeState extends State<DriverHome> {
             _emergencyChannelName,
             importance: fln.Importance.max,
             priority: fln.Priority.max,
-            ongoing: true,
-            autoCancel: false,
+            ongoing: false,
+            autoCancel: true,
             playSound: true,
             enableVibration: true,
-            additionalFlags: Int32List.fromList([4]),
+            category: fln.AndroidNotificationCategory.alarm,
+            ticker: 'طلب رحلة جديد',
             vibrationPattern: Int64List.fromList([0, 500, 300, 500, 300, 500, 300, 500, 300, 500, 300, 500]),
             sound: const fln.RawResourceAndroidNotificationSound('ride_request_sound'),
             channelShowBadge: true,
