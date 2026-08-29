@@ -48,6 +48,7 @@
     <application
         android:name="android.app.Application"
         tools:replace="android:name"
+        android:extractNativeLibs="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Tracka"
         android:usesCleartextTraffic="true"
