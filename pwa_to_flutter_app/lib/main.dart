@@ -59,12 +59,12 @@ String? _extractRideId(Map<String, dynamic> data) {
 }
 
 String? _extractUrl(Map<String, dynamic> data) {
-  dynamic url = data['url'];
+  dynamic url = data['url'] ?? data['URL'] ?? data['link'] ?? data['target_url'];
   if ((url == null || url.toString().isEmpty) && data['payload'] != null) {
     try {
       final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
       if (payloadData is Map) {
-        url = payloadData['url'];
+        url = payloadData['url'] ?? payloadData['URL'] ?? payloadData['link'] ?? payloadData['target_url'];
       }
     } catch (_) {}
   }
@@ -570,6 +570,10 @@ class _DriverHomeState extends State<DriverHome> {
       print('📱 [Flutter] Navigating to URL: $targetUrl');
       if (web != null) {
         web!.loadUrl(urlRequest: URLRequest(url: WebUri(targetUrl)));
+        // ✅ Also evaluate JS window.location.href for single-page PWA hash/route changes
+        try {
+          web!.evaluateJavascript(source: "window.location.href = '$targetUrl';");
+        } catch (_) {}
       } else {
         setState(() => _pendingUrl = targetUrl);
       }
