@@ -911,7 +911,7 @@ class _DriverHomeState extends State<DriverHome> {
         ),
         child: SafeArea(
           child: InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://tracka.zoonasd.com/')),
+            initialUrlRequest: URLRequest(url: WebUri(_pendingUrl ?? 'https://tracka.zoonasd.com/passenger_app/index.html')),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
