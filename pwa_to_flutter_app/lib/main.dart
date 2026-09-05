@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-  
+
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -22,7 +21,14 @@ import 'package:vibration/vibration.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // أنواع إشعارات منصة السفر (الهادئة)
-const _travelTypes = {'DRIVER_OFFER', 'DRIVER_SELECTED', 'NEW_CHAT_MESSAGE'};
+const _travelTypes = {
+  'DRIVER_OFFER',
+  'DRIVER_SELECTED',
+  'NEW_CHAT_MESSAGE',
+  'NEW_TRAVEL_REQUEST',
+  'TRIP_CANCELLED',
+  'RIDE_CANCELLED',
+};
 
 // ✅ نوع إشعار الرحلة الفورية (الطوارئ)
 const String _rideRequestType = 'RIDE_REQUEST';
@@ -44,10 +50,25 @@ String? _extractRideId(Map<String, dynamic> data) {
   if (rideId == null && data['payload'] != null) {
     try {
       final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
-      rideId = payloadData['ride_id'] ?? payloadData['rideId'];
+      if (payloadData is Map) {
+        rideId = payloadData['ride_id'] ?? payloadData['rideId'];
+      }
     } catch (_) {}
   }
   return rideId?.toString();
+}
+
+String? _extractUrl(Map<String, dynamic> data) {
+  dynamic url = data['url'] ?? data['URL'] ?? data['link'] ?? data['target_url'];
+  if ((url == null || url.toString().isEmpty) && data['payload'] != null) {
+    try {
+      final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
+      if (payloadData is Map) {
+        url = payloadData['url'] ?? payloadData['URL'] ?? payloadData['link'] ?? payloadData['target_url'];
+      }
+    } catch (_) {}
+  }
+  return url?.toString();
 }
 
 Future<bool> _isDuplicateRide(String? rideId) async {
@@ -372,9 +393,32 @@ class _DriverHomeState extends State<DriverHome> {
         stopGlobalAlertSound();
         _overlayEntry?.remove();
         _overlayEntry = null;
-        if (details.payload != null) _handleNotificationClick(jsonDecode(details.payload!));
+        if (details.payload != null) {
+          try {
+            _handleNotificationClick(jsonDecode(details.payload!));
+          } catch (e) {
+            print('❌ Error parsing notification response payload: $e');
+          }
+        }
       }
     );
+
+    try {
+      final launchDetails = await notifications.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true && launchDetails?.notificationResponse?.payload != null) {
+        stopGlobalAlertSound();
+        _overlayEntry?.remove();
+        _overlayEntry = null;
+        try {
+          final payloadData = jsonDecode(launchDetails!.notificationResponse!.payload!);
+          _handleNotificationClick(payloadData);
+        } catch (e) {
+          print('❌ Error parsing app launch notification payload: $e');
+        }
+      }
+    } catch (e) {
+      print('❌ Error getting notification launch details: $e');
+    }
 
     final androidImplementation = notifications.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
 
@@ -494,6 +538,7 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   void _handleNotificationClick(Map<String, dynamic> data) {
+    print('📱 [Flutter] Notification clicked with data: $data');
     final String notifType = data['type']?.toString() ?? '';
     final bool isTravelNotif = _travelTypes.contains(notifType);
 
@@ -501,32 +546,39 @@ class _DriverHomeState extends State<DriverHome> {
     _overlayEntry?.remove();
     _overlayEntry = null;
 
-    if (isTravelNotif) {
-      const String travelUrl = 'https://tracka.zoonasd.com/driver_app/travel-platform.html';
-      if (web != null) {
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(travelUrl)));
+    String? targetUrl;
+    final String? extractedUrl = _extractUrl(data);
+
+    if (extractedUrl != null && extractedUrl.isNotEmpty) {
+      if (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://')) {
+        targetUrl = extractedUrl;
+      } else if (extractedUrl.startsWith('/')) {
+        targetUrl = 'https://tracka.zoonasd.com$extractedUrl';
       } else {
-        setState(() => _pendingUrl = travelUrl);
+        targetUrl = 'https://tracka.zoonasd.com/$extractedUrl';
       }
-      return;
+    } else if (isTravelNotif) {
+      targetUrl = 'https://tracka.zoonasd.com/passenger_app/travel-platform.html';
+    } else {
+      dynamic rideId = _extractRideId(data);
+      if (rideId != null) {
+        targetUrl = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+      }
     }
 
-    dynamic rideId = data['ride_id'] ?? data['rideId'];
-
-    if (rideId == null && data['payload'] != null) {
-      try {
-        final payloadData = data['payload'] is String ? jsonDecode(data['payload']) : data['payload'];
-        rideId = payloadData['ride_id'] ?? payloadData['rideId'];
-      } catch (_) {}
-    }
-
-    if (rideId != null) {
-      final url = "https://tracka.zoonasd.com/driver_app/accept-ride.html?id=$rideId";
+    if (targetUrl != null && targetUrl.isNotEmpty) {
+      print('📱 [Flutter] Navigating to URL: $targetUrl');
       if (web != null) {
-        web!.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+        web!.loadUrl(urlRequest: URLRequest(url: WebUri(targetUrl)));
+        // ✅ Also evaluate JS window.location.href for single-page PWA hash/route changes
+        try {
+          web!.evaluateJavascript(source: "window.location.href = '$targetUrl';");
+        } catch (_) {}
       } else {
-        setState(() => _pendingUrl = url);
+        setState(() => _pendingUrl = targetUrl);
       }
+    } else {
+      print('📱 [Flutter] ⚠️ No valid URL found in notification payload');
     }
   }
 
